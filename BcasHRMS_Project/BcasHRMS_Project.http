@@ -1,0 +1,6 @@
+@BcasHRMS_Project_HostAddress = http://localhost:5239
+
+GET {{BcasHRMS_Project_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
