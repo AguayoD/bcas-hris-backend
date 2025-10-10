@@ -127,13 +127,32 @@ namespace BcasHRMS_Project.Controllers
 
             var result = await _connection.QueryAsync<EvaluationWithNamesDto>(sql);
 
-            if (!result.Any())
-                return NotFound("No evaluations found.");
-
+            // Return empty array instead of 404 when no evaluations found
             return Ok(result);
+        }
+        [HttpPost("reset")]
+        public async Task<IActionResult> ResetEvaluations()
+        {
+            try
+            {
+                if (_connection.State != ConnectionState.Open)
+                    _connection.Open();
+
+                var deleteScoresSql = "DELETE FROM SubGroupScore";
+                var deleteEvalsSql = "DELETE FROM Evaluation";
+
+                await _connection.ExecuteAsync(deleteScoresSql);
+                await _connection.ExecuteAsync(deleteEvalsSql);
+
+                return Ok(new { Message = "Evaluation data reset successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error resetting evaluations: {ex.Message}");
+            }
         }
 
 
-
     }
+
 }
