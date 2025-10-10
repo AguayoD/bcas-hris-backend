@@ -130,6 +130,7 @@ namespace BcasHRMS_Project.Controllers
             // Return empty array instead of 404 when no evaluations found
             return Ok(result);
         }
+
         [HttpPost("reset")]
         public async Task<IActionResult> ResetEvaluations()
         {

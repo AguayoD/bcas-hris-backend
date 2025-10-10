@@ -62,28 +62,32 @@ namespace BCAS_HRMSbackend.Controllers
 
         [HttpPost]
         public async Task<IActionResult> InserttblContracts([FromForm] int employeeID, [FromForm] string contractType,
-            [FromForm] string contractStartDate, [FromForm] string? contractEndDate,
-            [FromForm] int lastUpdatedBy, IFormFile file)
+    [FromForm] string contractStartDate, [FromForm] string? contractEndDate,
+    [FromForm] int lastUpdatedBy, IFormFile file)
         {
             try
             {
-                // Handle file upload
                 if (file == null || file.Length == 0)
                     return BadRequest("No file uploaded");
 
-                var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "Contracts");
-                if (!Directory.Exists(uploadsFolder))
-                    Directory.CreateDirectory(uploadsFolder);
+                // Use relative path instead of absolute path
+                var uploadsFolder = Path.Combine("Uploads", "Contracts");
+                var fullUploadsPath = Path.Combine(Directory.GetCurrentDirectory(), uploadsFolder);
+
+                if (!Directory.Exists(fullUploadsPath))
+                    Directory.CreateDirectory(fullUploadsPath);
 
                 var uniqueFileName = Guid.NewGuid().ToString() + "_" + file.FileName;
-                var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+                var filePath = Path.Combine(fullUploadsPath, uniqueFileName);
 
                 using (var stream = new FileStream(filePath, FileMode.Create))
                 {
                     await file.CopyToAsync(stream);
                 }
 
-                // Create contract object
+                // Store relative path in database
+                var relativeFilePath = Path.Combine(uploadsFolder, uniqueFileName);
+
                 var contract = new tblContracts
                 {
                     EmployeeID = employeeID,
@@ -93,7 +97,7 @@ namespace BCAS_HRMSbackend.Controllers
                     LastUpdatedBy = lastUpdatedBy,
                     LastUpdatedAt = DateTime.Now,
                     FileName = file.FileName,
-                    FilePath = filePath,
+                    FilePath = relativeFilePath, // Store relative path
                     FileType = file.ContentType,
                     FileSize = file.Length
                 };
@@ -134,15 +138,15 @@ namespace BCAS_HRMSbackend.Controllers
                         Directory.CreateDirectory(uploadsFolder);
 
                     var uniqueFileName = Guid.NewGuid().ToString() + "_" + file.FileName;
-                    var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+                    var relativeFilePath = Path.Combine(uploadsFolder, uniqueFileName);
 
-                    using (var stream = new FileStream(filePath, FileMode.Create))
+                    using (var stream = new FileStream(relativeFilePath, FileMode.Create))
                     {
                         await file.CopyToAsync(stream);
                     }
 
                     existingContract.FileName = file.FileName;
-                    existingContract.FilePath = filePath;
+                    existingContract.FilePath = relativeFilePath;
                     existingContract.FileType = file.ContentType;
                     existingContract.FileSize = file.Length;
                 }
@@ -241,24 +245,63 @@ namespace BCAS_HRMSbackend.Controllers
                 if (contract == null || string.IsNullOrEmpty(contract.FilePath))
                     return NotFound();
 
-                if (!System.IO.File.Exists(contract.FilePath))
-                    return NotFound("File not found");
+                // Handle both relative and absolute paths
+                string fullFilePath;
+                if (Path.IsPathRooted(contract.FilePath))
+                {
+                    // Absolute path
+                    fullFilePath = contract.FilePath;
+                }
+                else
+                {
+                    // Relative path - combine with current directory
+                    fullFilePath = Path.Combine(Directory.GetCurrentDirectory(), contract.FilePath);
+                }
+
+                if (!System.IO.File.Exists(fullFilePath))
+                {
+                    Console.WriteLine($"File not found: {fullFilePath}");
+                    return NotFound("File not found on server");
+                }
 
                 var memory = new MemoryStream();
-                using (var stream = new FileStream(contract.FilePath, FileMode.Open, FileAccess.Read))
+                using (var stream = new FileStream(fullFilePath, FileMode.Open, FileAccess.Read))
                 {
-                    await stream.CopyToAsync(memory); // FIXED: Copy stream to memory instead of to itself
+                    await stream.CopyToAsync(memory);
                 }
                 memory.Position = 0;
 
                 var contentType = GetContentType(contract.FilePath);
                 var fileName = contract.FileName ?? Path.GetFileName(contract.FilePath);
 
+                // Add content-disposition header
+                Response.Headers.Add("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+
                 return File(memory, contentType, fileName);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error downloading contract {id}: {ex.Message}");
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // Add this method to get file URL
+        [HttpGet("{id}/url")]
+        public async Task<IActionResult> GetFileUrl(int id)
+        {
+            try
+            {
+                var contract = await _tblContractsService.GetById(id);
+                if (contract == null)
+                    return NotFound();
+
+                // Return a URL that can be used to download the file
+                var fileUrl = Url.Action("DownloadContract", "Contracts", new { id = id }, Request.Scheme);
+                return Ok(new { fileUrl, fileName = contract.FileName });
+            }
+            catch (Exception ex)
+            {
                 return BadRequest(ex.Message);
             }
         }
