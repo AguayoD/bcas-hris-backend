@@ -111,6 +111,7 @@ namespace BCAS_HRMSbackend.Controllers
             }
         }
 
+
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateContractFormData(int id,
      [FromForm] string? contractType,
