@@ -48,8 +48,25 @@ namespace BcasHRMS_Project.Controllers
                     return BadRequest("Evaluator not found in tblUsers.");
                 }
 
+                // NEW STEP: Check if evaluation already exists for this employee and evaluator
+                var checkExistingSql = @"
+                    SELECT COUNT(1) FROM Evaluation 
+                    WHERE EmployeeID = @EmployeeID AND EvaluatorID = @EvaluatorID";
+
+                var existingCount = await _connection.ExecuteScalarAsync<int>(checkExistingSql, new
+                {
+                    EmployeeID = evaluation.EmployeeID,
+                    EvaluatorID = evaluatorUserId.Value
+                }, transaction);
+
+                if (existingCount > 0)
+                {
+                    transaction.Rollback();
+                    return BadRequest("This employee has already been evaluated.");
+                }
+
                 // STEP 2: Optional: Calculate Final Score from SubGroupScores
-                float finalScore = CalculateFinalScore(evaluation.Scores);
+                decimal finalScore = CalculateFinalScore(evaluation.Scores);
 
                 // STEP 3: Insert Evaluation
                 var insertEvalSql = @"
@@ -63,7 +80,7 @@ namespace BcasHRMS_Project.Controllers
                     EvaluatorID = evaluatorUserId.Value,
                     evaluation.EvaluationDate,
                     evaluation.Comments,
-                    FinalScore = finalScore,
+                    FinalScore = Math.Round(finalScore, 2), // Rounded to 2 decimal places
                     CreatedAt = DateTime.UtcNow
                 }, transaction);
 
@@ -96,34 +113,39 @@ namespace BcasHRMS_Project.Controllers
         /// <summary>
         /// Calculates the final weighted score based on group weights.
         /// </summary>
-        private float CalculateFinalScore(List<SubGroupScore> scores)
+        private decimal CalculateFinalScore(List<SubGroupScore> scores)
         {
             if (scores == null || scores.Count == 0)
-                return 0f;
+                return 0m;
 
-            return (float)scores.Average(s => s.ScoreValue);
+            foreach (var score in scores)
+            {
+                Console.WriteLine(score.ScoreValue);
+            }
+
+            return scores.Average(s => (decimal)s.ScoreValue);
         }
 
         [HttpGet]
         public async Task<IActionResult> GetEvaluation()
         {
             var sql = @"
-        SELECT 
-            e.EvaluationID,
-            e.EmployeeID,
-            emp.FirstName + ' ' + emp.LastName AS EmployeeName,
-            e.EvaluatorID,
-            evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName,
-            e.EvaluationDate,
-            e.Comments,
-            e.FinalScore,
-            e.CreatedAt
-        FROM Evaluation e
-        INNER JOIN tblEmployees emp ON e.EmployeeID = emp.EmployeeID
-        INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
-        INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
-        ORDER BY e.CreatedAt DESC;
-    ";
+                SELECT 
+                    e.EvaluationID,
+                    e.EmployeeID,
+                    emp.FirstName + ' ' + emp.LastName AS EmployeeName,
+                    e.EvaluatorID,
+                    evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName,
+                    e.EvaluationDate,
+                    e.Comments,
+                    e.FinalScore,
+                    e.CreatedAt
+                FROM Evaluation e
+                INNER JOIN tblEmployees emp ON e.EmployeeID = emp.EmployeeID
+                INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
+                INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
+                ORDER BY e.CreatedAt DESC;
+            ";
 
             var result = await _connection.QueryAsync<EvaluationWithNamesDto>(sql);
 
@@ -131,6 +153,50 @@ namespace BcasHRMS_Project.Controllers
             return Ok(result);
         }
 
+        [HttpGet("{id}/answers")]
+        public async Task<IActionResult> GetEvaluationAnswers(int id)
+        {
+            var sql = @"
+                SELECT 
+                    sg.ScoreValue,
+                    sg.SubGroupID,
+                    sgScore.Name AS SubGroupName,
+                    u.UserId,
+                    evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName
+                FROM SubGroupScore sg
+                INNER JOIN Evaluation e ON sg.EvaluationID = e.EvaluationID
+                INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
+                INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
+                INNER JOIN SubGroup sgScore ON sg.SubGroupID = sgScore.SubGroupID
+                WHERE e.EvaluationID = @EvaluationID;
+            ";
+
+            var result = await _connection.QueryAsync<dynamic>(sql, new { EvaluationID = id });
+
+            if (!result.Any())
+                return NotFound("Evaluation not found or no answers.");
+
+            var first = result.First();
+            var dto = new EvaluationAnswerDto
+            {
+                EvaluatorName = first.EvaluatorName,
+                Answers = result.Select(r => new SubGroupAnswer
+                {
+                    SubGroupID = r.SubGroupID,
+                    SubGroupName = r.SubGroupName,
+                    ScoreValue = r.ScoreValue,
+                    ScoreLabel = GetScoreLabel((int)r.ScoreValue)
+                }).ToList()
+            };
+
+            return Ok(dto);
+        }
+
+        private string GetScoreLabel(int scoreValue)
+        {
+            return ScoreChoice.StandardChoices
+                .FirstOrDefault(s => s.Value == scoreValue)?.Label ?? "Unknown";
+        }
 
         [HttpPost("reset")]
         public async Task<IActionResult> ResetEvaluations()
@@ -153,8 +219,5 @@ namespace BcasHRMS_Project.Controllers
                 return StatusCode(500, $"Error resetting evaluations: {ex.Message}");
             }
         }
-
-
     }
-
 }

@@ -71,6 +71,7 @@ namespace BCAS_HRMSbackend.Controllers
                 if (file == null || file.Length == 0)
                     return BadRequest("No file uploaded");
 
+
                 // Use consistent relative path
                 var uploadsFolder = Path.Combine("Uploads", "Contracts");
                 var fullUploadsPath = Path.Combine(Directory.GetCurrentDirectory(), uploadsFolder);

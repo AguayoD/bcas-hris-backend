@@ -90,5 +90,18 @@ namespace Models.Models
         public DateTime CreatedAt { get; set; }
         // Comments, etc.
     }
+    public class EvaluationAnswerDto
+    {
+        public string EvaluatorName { get; set; }
+        public List<SubGroupAnswer> Answers { get; set; }
+    }
+
+    public class SubGroupAnswer
+    {
+        public int SubGroupID { get; set; }
+        public string SubGroupName { get; set; }
+        public int ScoreValue { get; set; }
+        public string ScoreLabel { get; set; }
+    }
 
 }
