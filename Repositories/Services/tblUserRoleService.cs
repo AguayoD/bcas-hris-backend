@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace Repositories.Services
 {
-    class tblUserRoleService
+   public class tblUserRoleService
     {
         private readonly tblUserRoleRepository _RoleRepository = new tblUserRoleRepository();
 

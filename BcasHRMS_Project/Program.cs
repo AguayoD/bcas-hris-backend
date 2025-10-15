@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
+using Repositories.Repositories;
+using Repositories.Services;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +37,9 @@ builder.Services.AddCors(options =>
 
         });
 });
+
+builder.Services.AddScoped<tblUserRoleRepository>();
+builder.Services.AddScoped<tblUserRoleService>();
 
 
 

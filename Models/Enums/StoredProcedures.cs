@@ -83,5 +83,12 @@ namespace Models.Enums
         tblEmploymentStatus_Insert,
         tblEmploymentStatus_Update,
         tblEmploymentStatus_Delete,
+
+        // Role stored procedures
+        tblRoles_GetAll,
+        tblRoles_GetById,
+        tblRoles_Insert,
+        tblRoles_Update,
+        tblRoles_DeleteById,
     }
 }
