@@ -69,5 +69,19 @@ namespace Models.Enums
         tblUsers_GetByResetToken,      // ✅ New
         tblUsers_ClearResetToken,      // ✅ New
         tblUsers_UpdatePassword,       // ✅ New
+
+        //---Educational Attainment---//
+        tblEducationalAttainment_GetAll,
+        tblEducationalAttainment_GetById,
+        tblEducationalAttainment_Insert,
+        tblEducationalAttainment_Update,
+        tblEducationalAttainment_Delete,
+
+        //---Employment Status---//
+        tblEmploymentStatus_GetAll,
+        tblEmploymentStatus_GetById,
+        tblEmploymentStatus_Insert,
+        tblEmploymentStatus_Update,
+        tblEmploymentStatus_Delete,
     }
 }

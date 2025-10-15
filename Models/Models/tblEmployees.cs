@@ -16,14 +16,14 @@ namespace Models.Models
         public string? Address { get; set; }
         public int? PositionID { get; set; }
         public int? DepartmentID { get; set; }
-        public string? EmploymentStatus { get; set; }
+        public int? EmploymentStatus { get; set; }
         public DateTime? HireDate { get; set; }
         public string? MemberFirstName { get; set; }
         public string? MemberLastName{ get; set; }
         public string? MemberGender { get; set; }
         public string? MemberAddress { get; set; }
         public string? MemberPhoneNumber { get; set; }
-        public string? EducationalAttainment { get; set; }
+        public int? EducationalAttainment { get; set; }
         public string? InstitutionName { get; set; }
         public DateTime? YearGraduated { get; set; }
         public string? CourseName { get; set; }
