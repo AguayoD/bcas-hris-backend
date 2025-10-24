@@ -35,6 +35,8 @@ namespace Models.Models
         public string? Supervisor { get; set; }
         public string? Accomplishment { get; set; }
         public string? Summary{ get; set; }
+        public int? DepartmentID2 { get; set; }
+        public int? DepartmentID3 { get; set; }
         //added
         //public List<Evaluation> Evaluations { get; set; }
     }
