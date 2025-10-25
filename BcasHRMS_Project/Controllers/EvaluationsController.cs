@@ -23,8 +23,11 @@ namespace BcasHRMS_Project.Controllers
             if (evaluation == null)
                 return BadRequest("Invalid evaluation data.");
 
-            if (evaluation.EmployeeID == 0 || evaluation.EvaluatorID == 0 || evaluation.Scores == null || evaluation.Scores.Count == 0)
+            if (evaluation.EmployeeID == 0 || evaluation.EvaluatorID == 0)
                 return BadRequest("Missing required evaluation information.");
+
+            if (evaluation.Scores == null || evaluation.Scores.Count == 0)
+                return BadRequest("At least one score is required.");
 
             if (_connection.State != ConnectionState.Open)
             {
@@ -39,7 +42,7 @@ namespace BcasHRMS_Project.Controllers
                 var getUserIdSql = @"SELECT UserId FROM tblUsers WHERE EmployeeId = @EmployeeId";
                 var evaluatorUserId = await _connection.ExecuteScalarAsync<int?>(getUserIdSql, new
                 {
-                    EmployeeId = evaluation.EvaluatorID // From localStorage
+                    EmployeeId = evaluation.EvaluatorID
                 }, transaction);
 
                 if (evaluatorUserId == null)
@@ -62,11 +65,11 @@ namespace BcasHRMS_Project.Controllers
                 if (existingCount > 0)
                 {
                     transaction.Rollback();
-                    return BadRequest("This employee has already been evaluated.");
+                    return BadRequest("This employee has already been evaluated by this evaluator.");
                 }
 
-                // STEP 2: Optional: Calculate Final Score from SubGroupScores
-                decimal finalScore = CalculateFinalScore(evaluation.Scores);
+                // STEP 2: Calculate Final Score from SubGroupScores with weights
+                decimal finalScore = await CalculateWeightedFinalScore(evaluation.Scores, transaction);
 
                 // STEP 3: Insert Evaluation
                 var insertEvalSql = @"
@@ -78,9 +81,9 @@ namespace BcasHRMS_Project.Controllers
                 {
                     evaluation.EmployeeID,
                     EvaluatorID = evaluatorUserId.Value,
-                    evaluation.EvaluationDate,
+                    EvaluationDate = DateTime.UtcNow,
                     evaluation.Comments,
-                    FinalScore = Math.Round(finalScore, 2), // Rounded to 2 decimal places
+                    FinalScore = Math.Round(finalScore, 2),
                     CreatedAt = DateTime.UtcNow
                 }, transaction);
 
@@ -101,7 +104,12 @@ namespace BcasHRMS_Project.Controllers
 
                 transaction.Commit();
 
-                return Ok(new { EvaluationID = evaluationID, Message = "Evaluation created successfully." });
+                // Return the complete evaluation with ID
+                evaluation.EvaluationID = evaluationID;
+                evaluation.FinalScore = (float)finalScore;
+                evaluation.CreatedAt = DateTime.UtcNow;
+
+                return Ok(evaluation);
             }
             catch (Exception ex)
             {
@@ -113,21 +121,40 @@ namespace BcasHRMS_Project.Controllers
         /// <summary>
         /// Calculates the final weighted score based on group weights.
         /// </summary>
-        private decimal CalculateFinalScore(List<SubGroupScore> scores)
+        private async Task<decimal> CalculateWeightedFinalScore(List<SubGroupScore> scores, IDbTransaction transaction)
         {
             if (scores == null || scores.Count == 0)
                 return 0m;
 
+            // Get all groups with their weights
+            var groupsSql = "SELECT * FROM [Group]";
+            var groups = await _connection.QueryAsync<Group>(groupsSql, transaction: transaction);
+
+            // Get subgroups with their parent groups
+            var subgroupsSql = @"
+                SELECT sg.SubGroupID, sg.GroupID, sg.Name, g.Weight 
+                FROM SubGroup sg 
+                INNER JOIN [Group] g ON sg.GroupID = g.GroupID";
+            var subgroups = await _connection.QueryAsync<(int SubGroupID, int GroupID, string Name, float Weight)>(subgroupsSql, transaction: transaction);
+
+            decimal totalWeightedScore = 0m;
+            decimal totalWeight = 0m;
+
             foreach (var score in scores)
             {
-                Console.WriteLine(score.ScoreValue);
+                var subgroup = subgroups.FirstOrDefault(s => s.SubGroupID == score.SubGroupID);
+                if (subgroup.SubGroupID != 0) // Found the subgroup
+                {
+                    totalWeightedScore += score.ScoreValue * (decimal)subgroup.Weight;
+                    totalWeight += (decimal)subgroup.Weight;
+                }
             }
 
-            return scores.Average(s => (decimal)s.ScoreValue);
+            return totalWeight > 0 ? Math.Round(totalWeightedScore / totalWeight, 2) : 0m;
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetEvaluation()
+        public async Task<IActionResult> GetEvaluations()
         {
             var sql = @"
                 SELECT 
@@ -160,14 +187,14 @@ namespace BcasHRMS_Project.Controllers
                 SELECT 
                     sg.ScoreValue,
                     sg.SubGroupID,
-                    sgScore.Name AS SubGroupName,
+                    sgrp.Name AS SubGroupName,
                     u.UserId,
                     evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName
                 FROM SubGroupScore sg
                 INNER JOIN Evaluation e ON sg.EvaluationID = e.EvaluationID
                 INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
                 INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
-                INNER JOIN SubGroup sgScore ON sg.SubGroupID = sgScore.SubGroupID
+                INNER JOIN SubGroup sgrp ON sg.SubGroupID = sgrp.SubGroupID
                 WHERE e.EvaluationID = @EvaluationID;
             ";
 
@@ -218,6 +245,39 @@ namespace BcasHRMS_Project.Controllers
             {
                 return StatusCode(500, $"Error resetting evaluations: {ex.Message}");
             }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetEvaluationById(int id)
+        {
+            var sql = @"
+                SELECT 
+                    e.*,
+                    emp.FirstName + ' ' + emp.LastName AS EmployeeName,
+                    evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName
+                FROM Evaluation e
+                INNER JOIN tblEmployees emp ON e.EmployeeID = emp.EmployeeID
+                INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
+                INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
+                WHERE e.EvaluationID = @EvaluationID;
+
+                SELECT 
+                    sgs.*,
+                    sg.Name AS SubGroupName
+                FROM SubGroupScore sgs
+                INNER JOIN SubGroup sg ON sgs.SubGroupID = sg.SubGroupID
+                WHERE sgs.EvaluationID = @EvaluationID;
+            ";
+
+            using var multi = await _connection.QueryMultipleAsync(sql, new { EvaluationID = id });
+
+            var evaluation = await multi.ReadFirstOrDefaultAsync<EvaluationWithNamesDto>();
+            if (evaluation == null)
+                return NotFound();
+
+            var scores = await multi.ReadAsync<SubGroupScore>();
+
+            return Ok(new { Evaluation = evaluation, Scores = scores });
         }
     }
 }
