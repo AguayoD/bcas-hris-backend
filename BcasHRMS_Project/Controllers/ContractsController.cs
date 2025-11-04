@@ -62,15 +62,19 @@ namespace BCAS_HRMSbackend.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> InserttblContracts([FromForm] int employeeID, [FromForm] string contractType,
-            [FromForm] string contractStartDate, [FromForm] string? contractEndDate,
-            [FromForm] int lastUpdatedBy, IFormFile file)
+        public async Task<IActionResult> InserttblContracts(
+            [FromForm] int employeeID,
+            [FromForm] string contractType,
+            [FromForm] string contractStartDate,
+            [FromForm] string? contractEndDate,
+            [FromForm] int lastUpdatedBy,
+            [FromForm] string? contractCategory, // ADDED: contractCategory parameter
+            IFormFile file)
         {
             try
             {
                 if (file == null || file.Length == 0)
                     return BadRequest("No file uploaded");
-
 
                 // Use consistent relative path
                 var uploadsFolder = Path.Combine("Uploads", "Contracts");
@@ -99,7 +103,8 @@ namespace BCAS_HRMSbackend.Controllers
                     FileName = file.FileName,
                     FilePath = uniqueFileName, // Store only filename
                     FileType = file.ContentType,
-                    FileSize = file.Length
+                    FileSize = file.Length,
+                    ContractCategory = contractCategory // ADDED: Set contract category
                 };
 
                 var data = await _tblContractsService.Insert(contract);
@@ -112,11 +117,13 @@ namespace BCAS_HRMSbackend.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateContractFormData(int id,
+        public async Task<IActionResult> UpdateContractFormData(
+            int id,
             [FromForm] string? contractType,
             [FromForm] string? contractStartDate,
             [FromForm] string? contractEndDate,
             [FromForm] int lastUpdatedBy,
+            [FromForm] string? contractCategory, // ADDED: contractCategory parameter
             IFormFile? file)
         {
             try
@@ -164,6 +171,13 @@ namespace BCAS_HRMSbackend.Controllers
 
                 if (!string.IsNullOrEmpty(contractStartDate))
                     existingContract.ContractStartDate = DateTime.Parse(contractStartDate);
+
+                // Handle contract category - can be set to null if empty string is provided
+                if (contractCategory != null)
+                {
+                    existingContract.ContractCategory = string.IsNullOrEmpty(contractCategory) ?
+                        null : contractCategory;
+                }
 
                 // Handle nullable end date - can be set to null if empty string is provided
                 if (contractEndDate != null)
@@ -341,6 +355,8 @@ namespace BCAS_HRMSbackend.Controllers
                 {".jpg", "image/jpeg"},
                 {".jpeg", "image/jpeg"},
                 {".gif", "image/gif"},
+                {".webp", "image/webp"},
+                {".bmp", "image/bmp"},
                 {".zip", "application/zip"},
                 {".rar", "application/x-rar-compressed"},
             };

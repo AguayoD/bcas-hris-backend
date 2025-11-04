@@ -22,5 +22,6 @@ namespace Model.Models
         public string? FilePath { get; set; }
         public string? FileType { get; set; }
         public long? FileSize { get; set; }
+        public string? ContractCategory { get; set; }
     }
 }
