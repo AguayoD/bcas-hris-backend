@@ -1,5 +1,4 @@
-﻿
-using Models.DTOs.UsersDTO;
+﻿using Models.DTOs.UsersDTO;
 using Models.Models;
 using Repositories.Repositories;
 
@@ -25,7 +24,8 @@ namespace Repositories.Services
         {
             return await _tblUsersRepository.GetByUsername(username);
         }
-        public async new Task<tblUsers> Insert(UserInsertDTO userData)
+
+        public async Task<tblUsers> Insert(UserInsertDTO userData)
         {
             try
             {
@@ -38,8 +38,7 @@ namespace Repositories.Services
                     RoleId = userData.RoleId,
                     UserName = userData.Username,
                     PasswordHash = newPassword,
-                    Salt = Convert.ToBase64String(salt),    
-                
+                    Salt = Convert.ToBase64String(salt),
                 };
 
                 var insertedUser = await _tblUsersRepository.Insert(newUser);
@@ -49,6 +48,12 @@ namespace Repositories.Services
                     throw new Exception("Failed to insert user");
                 }
 
+                // Send email with credentials if email is provided
+                if (!string.IsNullOrEmpty(userData.Email))
+                {
+                    await SendUserCredentialsEmail(userData.Email, userData.Username, userData.NewPassword, userData.FirstName, userData.LastName);
+                }
+
                 return insertedUser;
             }
             catch (Exception ex)
@@ -56,6 +61,55 @@ namespace Repositories.Services
                 throw new Exception($"Error inserting user with roles: {ex.Message}", ex);
             }
         }
+
+        private async Task SendUserCredentialsEmail(string email, string username, string password, string? firstName, string? lastName)
+        {
+            try
+            {
+                var employeeName = !string.IsNullOrEmpty(firstName) && !string.IsNullOrEmpty(lastName)
+                    ? $"{firstName} {lastName}"
+                    : "User";
+
+                var subject = "Your BCAS HRIS Account Credentials";
+                var messageBody = $@"
+                    <html>
+                    <head>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                            .credentials-box {{ background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #00883e; }}
+                            .login-button {{ background-color: #00883e; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block; }}
+                            .footer {{ margin-top: 20px; font-size: 12px; color: #666; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h2>Welcome to BCAS HRIS, {employeeName}!</h2>
+                        <p>Your account has been successfully created.</p>
+                        
+                        <div class='credentials-box'>
+                            <p><strong>Username:</strong> {username}</p>
+                            <p><strong>Password:</strong> {password}</p>
+                        </div>
+                        
+                        <p>Please log in at your earliest convenience and change your password for security.</p>
+                        <p><a href='http://localhost:5173' class='login-button'>Login to System</a></p>
+                        
+                        <div class='footer'>
+                            <p><strong>Security Notice:</strong> For your security, please change your password after first login.</p>
+                            <p>If you did not request this account, please contact the administrator immediately.</p>
+                        </div>
+                    </body>
+                    </html>";
+
+                await _emailService.SendEmailAsync(email, subject, messageBody);
+                Console.WriteLine($"Credentials email sent to {email}");
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail user creation
+                Console.WriteLine($"Failed to send credentials email to {email}: {ex.Message}");
+            }
+        }
+
         public async Task<UserRolesDTO> GetByIdWithRoles(int id)
         {
             return await _tblUsersRepository.GetByIdWithRoles(id);
@@ -76,7 +130,7 @@ namespace Repositories.Services
             throw new NotImplementedException();
         }
 
-        //ADDED
+        // ADDED - Password reset functionality
         public async Task<string> ForgotPasswordAsync(string email)
         {
             // Get user by email

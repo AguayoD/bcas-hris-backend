@@ -9,5 +9,6 @@ namespace Models.DTOs.UsersDTO
         public string? NewPassword { get; set; }
         public int? RoleId { get; set; }
         public int? EmployeeId { get; set; }
+        public string? Email { get; set; } // Added for email sending
     }
 }

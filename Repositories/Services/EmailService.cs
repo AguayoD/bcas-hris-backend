@@ -8,12 +8,12 @@ namespace Repositories.Services
     public class EmailService
     {
         // You can move these to config or environment variables
-        private const string FromName = "BCAS Psychonnect System";
+        private const string FromName = "BCAS HRIS System";
         private const string FromEmail = "fromAddress@gmail.com";
         private const string SmtpHost = "smtp.gmail.com";
         private const int SmtpPort = 587;
-        private const string SmtpUser = "brentjaydeleon@gmail.com";
-        private const string SmtpPass = "tmet gker epqp eglt"; // Better store in config!
+        private const string SmtpUser = "deaguayo828@gmail.com";
+        private const string SmtpPass = "fuen aiij ottl tsva"; // Better store in config!
 
         //lance
         //private const string SmtpUser = "devillalancechristian1@gmail.com";
