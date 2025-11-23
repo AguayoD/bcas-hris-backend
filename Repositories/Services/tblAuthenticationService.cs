@@ -15,7 +15,7 @@ namespace Repositories.Services
 {
     public class AuthenticationService
     {
-       // private readonly IConfigurationRoot _config = new ConfigurationUtility().config;
+        // private readonly IConfigurationRoot _config = new ConfigurationUtility().config;
         public readonly IConfigurationRoot _config = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
            .AddJsonFile("appsettings.json")

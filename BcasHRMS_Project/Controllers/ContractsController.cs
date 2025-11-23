@@ -6,6 +6,7 @@ using Repositories.Service;
 using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
+using Repositories.Services;
 
 namespace BCAS_HRMSbackend.Controllers
 {
@@ -361,5 +362,21 @@ namespace BCAS_HRMSbackend.Controllers
                 {".rar", "application/x-rar-compressed"},
             };
         }
+
+        // Add this to your existing ContractsController.cs
+       [HttpPost("check-expirations")]
+    public async Task<IActionResult> CheckContractExpirations()
+    {
+        try
+        {
+            var notificationService = new ContractNotificationService();
+            await notificationService.CheckAndSendContractNotifications();
+            return Ok(new { message = "Contract expiration check completed successfully" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Error checking contract expirations: {ex.Message}" });
+        }
     }
+}
 }

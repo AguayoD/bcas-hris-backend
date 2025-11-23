@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Repositories.Repositories;
@@ -48,6 +48,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -66,6 +67,19 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// ADD THIS SECTION - Start the contract notification timer
+try
+{
+    var notificationService = new ContractNotificationService();
+    var timerService = new TimerService(notificationService);
+    timerService.Start();
+    Console.WriteLine("✅ Contract notification system started successfully!");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Failed to start contract notification system: {ex.Message}");
+}
 
 app.Run();
 

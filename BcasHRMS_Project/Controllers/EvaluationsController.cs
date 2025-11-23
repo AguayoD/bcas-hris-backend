@@ -29,6 +29,16 @@ namespace BcasHRMS_Project.Controllers
             if (evaluation.Scores == null || evaluation.Scores.Count == 0)
                 return BadRequest("At least one score is required.");
 
+            // Validate evaluation date
+            if (!DateTime.TryParse(evaluation.EvaluationDate.ToString(), out DateTime evaluationDate))
+                return BadRequest("Invalid evaluation date format.");
+
+            if (evaluationDate > DateTime.UtcNow.Date)
+                return BadRequest("Evaluation date cannot be in the future.");
+
+            if (evaluationDate.Year < 2000) // Basic sanity check
+                return BadRequest("Invalid evaluation date.");
+
             if (_connection.State != ConnectionState.Open)
             {
                 _connection.Open();
@@ -51,27 +61,28 @@ namespace BcasHRMS_Project.Controllers
                     return BadRequest("Evaluator not found in tblUsers.");
                 }
 
-                // NEW STEP: Check if evaluation already exists for this employee and evaluator
+                // NEW STEP: Check if evaluation already exists for this employee and evaluator for the same date
                 var checkExistingSql = @"
                     SELECT COUNT(1) FROM Evaluation 
-                    WHERE EmployeeID = @EmployeeID AND EvaluatorID = @EvaluatorID";
+                    WHERE EmployeeID = @EmployeeID AND EvaluatorID = @EvaluatorID AND EvaluationDate = @EvaluationDate";
 
                 var existingCount = await _connection.ExecuteScalarAsync<int>(checkExistingSql, new
                 {
                     EmployeeID = evaluation.EmployeeID,
-                    EvaluatorID = evaluatorUserId.Value
+                    EvaluatorID = evaluatorUserId.Value,
+                    EvaluationDate = evaluationDate.Date
                 }, transaction);
 
                 if (existingCount > 0)
                 {
                     transaction.Rollback();
-                    return BadRequest("This employee has already been evaluated by this evaluator.");
+                    return BadRequest("This employee has already been evaluated by this evaluator for the selected date.");
                 }
 
                 // STEP 2: Calculate Final Score from SubGroupScores with weights
                 decimal finalScore = await CalculateWeightedFinalScore(evaluation.Scores, transaction);
 
-                // STEP 3: Insert Evaluation
+                // STEP 3: Insert Evaluation - Use the provided evaluation date
                 var insertEvalSql = @"
                     INSERT INTO Evaluation (EmployeeID, EvaluatorID, EvaluationDate, Comments, FinalScore, CreatedAt)
                     VALUES (@EmployeeID, @EvaluatorID, @EvaluationDate, @Comments, @FinalScore, @CreatedAt);
@@ -81,7 +92,7 @@ namespace BcasHRMS_Project.Controllers
                 {
                     evaluation.EmployeeID,
                     EvaluatorID = evaluatorUserId.Value,
-                    EvaluationDate = DateTime.UtcNow,
+                    EvaluationDate = evaluationDate.Date, // Use the provided date
                     evaluation.Comments,
                     FinalScore = Math.Round(finalScore, 2),
                     CreatedAt = DateTime.UtcNow
