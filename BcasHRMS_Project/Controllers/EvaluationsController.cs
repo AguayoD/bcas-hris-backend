@@ -1,4 +1,6 @@
-﻿using Dapper;
+﻿// Controllers/EvaluationsController.cs
+using BCAS_HRMSbackend.Controllers;
+using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using Models.Models;
 using Repositories.Context;
@@ -8,11 +10,11 @@ namespace BcasHRMS_Project.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class EvaluationsController : ControllerBase
+    public class EvaluationsController : BaseController
     {
         private readonly IDbConnection _connection;
 
-        public EvaluationsController()
+        public EvaluationsController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
         {
             _connection = new ApplicationContext("DefaultSqlConnection").CreateConnection();
         }
@@ -36,7 +38,7 @@ namespace BcasHRMS_Project.Controllers
             if (evaluationDate > DateTime.UtcNow.Date)
                 return BadRequest("Evaluation date cannot be in the future.");
 
-            if (evaluationDate.Year < 2000) // Basic sanity check
+            if (evaluationDate.Year < 2000)
                 return BadRequest("Invalid evaluation date.");
 
             if (_connection.State != ConnectionState.Open)
@@ -92,7 +94,7 @@ namespace BcasHRMS_Project.Controllers
                 {
                     evaluation.EmployeeID,
                     EvaluatorID = evaluatorUserId.Value,
-                    EvaluationDate = evaluationDate.Date, // Use the provided date
+                    EvaluationDate = evaluationDate.Date,
                     evaluation.Comments,
                     FinalScore = Math.Round(finalScore, 2),
                     CreatedAt = DateTime.UtcNow
@@ -115,6 +117,17 @@ namespace BcasHRMS_Project.Controllers
 
                 transaction.Commit();
 
+                // Log the INSERT action
+                await LogActionAsync("Evaluation", "INSERT", evaluationID.ToString(), null, new
+                {
+                    evaluationID,
+                    evaluation.EmployeeID,
+                    EvaluatorID = evaluatorUserId.Value,
+                    evaluation.EvaluationDate,
+                    evaluation.Comments,
+                    FinalScore = Math.Round(finalScore, 2)
+                });
+
                 // Return the complete evaluation with ID
                 evaluation.EvaluationID = evaluationID;
                 evaluation.FinalScore = (float)finalScore;
@@ -129,19 +142,41 @@ namespace BcasHRMS_Project.Controllers
             }
         }
 
-        /// <summary>
-        /// Calculates the final weighted score based on group weights.
-        /// </summary>
+        [HttpPost("reset")]
+        public async Task<IActionResult> ResetEvaluations()
+        {
+            try
+            {
+                if (_connection.State != ConnectionState.Open)
+                    _connection.Open();
+
+                var deleteScoresSql = "DELETE FROM SubGroupScore";
+                var deleteEvalsSql = "DELETE FROM Evaluation";
+
+                await _connection.ExecuteAsync(deleteScoresSql);
+                await _connection.ExecuteAsync(deleteEvalsSql);
+
+                // Log the reset action
+                await LogActionAsync("Evaluation", "RESET", "ALL", null, new { Action = "All evaluations reset" });
+
+                return Ok(new { Message = "Evaluation data reset successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error resetting evaluations: {ex.Message}");
+            }
+        }
+
+        // ... rest of the existing methods remain the same
         private async Task<decimal> CalculateWeightedFinalScore(List<SubGroupScore> scores, IDbTransaction transaction)
         {
+            // Existing implementation remains the same
             if (scores == null || scores.Count == 0)
                 return 0m;
 
-            // Get all groups with their weights
             var groupsSql = "SELECT * FROM [Group]";
             var groups = await _connection.QueryAsync<Group>(groupsSql, transaction: transaction);
 
-            // Get subgroups with their parent groups
             var subgroupsSql = @"
                 SELECT sg.SubGroupID, sg.GroupID, sg.Name, g.Weight 
                 FROM SubGroup sg 
@@ -154,7 +189,7 @@ namespace BcasHRMS_Project.Controllers
             foreach (var score in scores)
             {
                 var subgroup = subgroups.FirstOrDefault(s => s.SubGroupID == score.SubGroupID);
-                if (subgroup.SubGroupID != 0) // Found the subgroup
+                if (subgroup.SubGroupID != 0)
                 {
                     totalWeightedScore += score.ScoreValue * (decimal)subgroup.Weight;
                     totalWeight += (decimal)subgroup.Weight;
@@ -182,12 +217,9 @@ namespace BcasHRMS_Project.Controllers
                 INNER JOIN tblEmployees emp ON e.EmployeeID = emp.EmployeeID
                 INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
                 INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
-                ORDER BY e.CreatedAt DESC;
-            ";
+                ORDER BY e.CreatedAt DESC;";
 
             var result = await _connection.QueryAsync<EvaluationWithNamesDto>(sql);
-
-            // Return empty array instead of 404 when no evaluations found
             return Ok(result);
         }
 
@@ -206,8 +238,7 @@ namespace BcasHRMS_Project.Controllers
                 INNER JOIN tblUsers u ON e.EvaluatorID = u.UserId
                 INNER JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
                 INNER JOIN SubGroup sgrp ON sg.SubGroupID = sgrp.SubGroupID
-                WHERE e.EvaluationID = @EvaluationID;
-            ";
+                WHERE e.EvaluationID = @EvaluationID;";
 
             var result = await _connection.QueryAsync<dynamic>(sql, new { EvaluationID = id });
 
@@ -230,34 +261,6 @@ namespace BcasHRMS_Project.Controllers
             return Ok(dto);
         }
 
-        private string GetScoreLabel(int scoreValue)
-        {
-            return ScoreChoice.StandardChoices
-                .FirstOrDefault(s => s.Value == scoreValue)?.Label ?? "Unknown";
-        }
-
-        [HttpPost("reset")]
-        public async Task<IActionResult> ResetEvaluations()
-        {
-            try
-            {
-                if (_connection.State != ConnectionState.Open)
-                    _connection.Open();
-
-                var deleteScoresSql = "DELETE FROM SubGroupScore";
-                var deleteEvalsSql = "DELETE FROM Evaluation";
-
-                await _connection.ExecuteAsync(deleteScoresSql);
-                await _connection.ExecuteAsync(deleteEvalsSql);
-
-                return Ok(new { Message = "Evaluation data reset successfully" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Error resetting evaluations: {ex.Message}");
-            }
-        }
-
         [HttpGet("{id}")]
         public async Task<IActionResult> GetEvaluationById(int id)
         {
@@ -277,8 +280,7 @@ namespace BcasHRMS_Project.Controllers
                     sg.Name AS SubGroupName
                 FROM SubGroupScore sgs
                 INNER JOIN SubGroup sg ON sgs.SubGroupID = sg.SubGroupID
-                WHERE sgs.EvaluationID = @EvaluationID;
-            ";
+                WHERE sgs.EvaluationID = @EvaluationID;";
 
             using var multi = await _connection.QueryMultipleAsync(sql, new { EvaluationID = id });
 
@@ -289,6 +291,12 @@ namespace BcasHRMS_Project.Controllers
             var scores = await multi.ReadAsync<SubGroupScore>();
 
             return Ok(new { Evaluation = evaluation, Scores = scores });
+        }
+
+        private string GetScoreLabel(int scoreValue)
+        {
+            return ScoreChoice.StandardChoices
+                .FirstOrDefault(s => s.Value == scoreValue)?.Label ?? "Unknown";
         }
     }
 }

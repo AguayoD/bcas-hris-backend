@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿// Controllers/EmployeesController.cs
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Model.Models;
 using Models.Models;
@@ -8,9 +9,13 @@ namespace BCAS_HRMSbackend.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class EmployeesController : ControllerBase
+    public class EmployeesController : BaseController
     {
         private readonly tblEmployeeService _tblEmployeeService = new tblEmployeeService();
+
+        public EmployeesController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
+        {
+        }
 
         [HttpGet]
         public async Task<IActionResult> GetAlltblEmployees()
@@ -24,8 +29,8 @@ namespace BCAS_HRMSbackend.Controllers
             {
                 return BadRequest(ex.Message);
             }
-
         }
+
         [HttpGet("{id}")]
         public async Task<IActionResult> GetByIdtblEmployees(int id)
         {
@@ -33,7 +38,6 @@ namespace BCAS_HRMSbackend.Controllers
             {
                 var data = await _tblEmployeeService.GetById(id);
                 if (data == null) return NoContent();
-
                 return Ok(data);
             }
             catch (Exception ex)
@@ -41,12 +45,20 @@ namespace BCAS_HRMSbackend.Controllers
                 return BadRequest(ex.Message);
             }
         }
+
         [HttpPost]
         public async Task<IActionResult> InserttblEmployees([FromBody] tblEmployees tblEmployees)
         {
             try
             {
                 var data = await _tblEmployeeService.Insert(tblEmployees);
+
+                // Log the INSERT action
+                if (data?.EmployeeID != null)
+                {
+                    await LogActionAsync("tblEmployees", "INSERT", data.EmployeeID.ToString(), null, data);
+                }
+
                 return Ok(data);
             }
             catch (Exception ex)
@@ -62,10 +74,14 @@ namespace BCAS_HRMSbackend.Controllers
             {
                 if (id != tblEmployees.EmployeeID) return BadRequest("Id mismatched.");
 
-                var data = await _tblEmployeeService.GetById(id);
-                if (data == null) return NotFound();
+                var oldData = await _tblEmployeeService.GetById(id);
+                if (oldData == null) return NotFound();
 
                 var updatedData = await _tblEmployeeService.Update(tblEmployees);
+
+                // Log the UPDATE action
+                await LogActionAsync("tblEmployees", "UPDATE", id.ToString(), oldData, updatedData);
+
                 return Ok(updatedData);
             }
             catch (Exception ex)
@@ -73,6 +89,7 @@ namespace BCAS_HRMSbackend.Controllers
                 return BadRequest(ex.Message);
             }
         }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteByIdtblEmployees(int id)
         {
@@ -82,6 +99,10 @@ namespace BCAS_HRMSbackend.Controllers
                 if (data == null) return NotFound();
 
                 var deletedData = await _tblEmployeeService.DeleteById(id);
+
+                // Log the DELETE action
+                await LogActionAsync("tblEmployees", "DELETE", id.ToString(), data, null);
+
                 return Ok(deletedData);
             }
             catch (Exception ex)

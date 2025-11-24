@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿// Controllers/FilesController.cs
+using BCAS_HRMSbackend.Controllers;
+using Microsoft.AspNetCore.Mvc;
 using Models.Models;
 using Repositories.Repositories;
 
@@ -6,17 +8,16 @@ namespace BcasHRMS_Project.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class FilesController : ControllerBase
+    public class FilesController : BaseController
     {
         private readonly tblGenericRepository<FileModel> _repository;
 
-        public FilesController()
+        public FilesController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
         {
             _repository = new tblGenericRepository<FileModel>();
-            _repository.tableName = "Files"; // override if class name ≠ table name
+            _repository.tableName = "Files";
         }
 
-        // Upload or update file per employee and document type
         [HttpPost("upload")]
         public async Task<IActionResult> Upload(
             [FromForm] IFormFile file,
@@ -40,12 +41,33 @@ namespace BcasHRMS_Project.Controllers
 
             if (existingFile != null)
             {
+                // Store old file info for audit
+                var oldFileInfo = new
+                {
+                    existingFile.FileName,
+                    existingFile.ContentType,
+                    FileSize = existingFile.Data?.Length
+                };
+
                 // Overwrite existing file
                 existingFile.FileName = file.FileName;
                 existingFile.ContentType = file.ContentType;
                 existingFile.Data = data;
 
                 await _repository.UpdateFileAsync(existingFile);
+
+                // Log the UPDATE action
+                await LogActionAsync("Files", "UPDATE", existingFile.Id.ToString(),
+                    oldFileInfo,
+                    new
+                    {
+                        FileName = file.FileName,
+                        ContentType = file.ContentType,
+                        FileSize = data.Length,
+                        EmployeeId = employeeId,
+                        DocumentType = documentType
+                    });
+
                 return Ok(new { FileId = existingFile.Id, Message = "File updated successfully." });
             }
             else
@@ -61,11 +83,52 @@ namespace BcasHRMS_Project.Controllers
                 };
 
                 int newId = await _repository.InsertFileAsync(fileModel);
+
+                // Log the INSERT action
+                await LogActionAsync("Files", "INSERT", newId.ToString(), null, new
+                {
+                    FileId = newId,
+                    EmployeeId = employeeId,
+                    DocumentType = documentType,
+                    FileName = file.FileName,
+                    ContentType = file.ContentType,
+                    FileSize = data.Length
+                });
+
                 return Ok(new { FileId = newId, Message = "File uploaded successfully." });
             }
         }
 
-        // Get file list per employee
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteFile(int id)
+        {
+            try
+            {
+                var file = await _repository.GetFileByIdAsync(id);
+                if (file == null)
+                    return NotFound();
+
+                await _repository.DeleteById(id);
+
+                // Log the DELETE action
+                await LogActionAsync("Files", "DELETE", id.ToString(), new
+                {
+                    file.FileName,
+                    file.ContentType,
+                    file.EmployeeId,
+                    file.DocumentType,
+                    FileSize = file.Data?.Length
+                }, null);
+
+                return Ok(new { Message = "File deleted successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error deleting file: {ex.Message}");
+            }
+        }
+
+        // ... existing GET methods remain the same
         [HttpGet("list/{employeeId}")]
         public async Task<IActionResult> GetFilesByEmployee(int employeeId)
         {
@@ -73,7 +136,6 @@ namespace BcasHRMS_Project.Controllers
             return Ok(files);
         }
 
-        // Download file by id
         [HttpGet("{id}")]
         public async Task<IActionResult> Download(int id)
         {

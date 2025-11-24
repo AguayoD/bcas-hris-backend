@@ -7,9 +7,13 @@ namespace BCAS_HRMSbackend.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class EmploymentStatusController : ControllerBase
+    public class EmploymentStatusController : BaseController
     {
         private readonly tblEmploymentStatusService _employmentStatusService = new tblEmploymentStatusService();
+
+        public EmploymentStatusController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
+        {
+        }
 
         [HttpGet]
         public async Task<IActionResult> GetAllEmploymentStatus()
@@ -47,6 +51,13 @@ namespace BCAS_HRMSbackend.Controllers
             try
             {
                 var data = await _employmentStatusService.Insert(employmentStatus);
+
+                // Log the INSERT action
+                if (data?.EmploymentStatusID != null)
+                {
+                    await LogActionAsync("tblEmploymentStatus", "INSERT", data.EmploymentStatusID.ToString(), null, data);
+                }
+
                 return Ok(data);
             }
             catch (Exception ex)
@@ -62,10 +73,14 @@ namespace BCAS_HRMSbackend.Controllers
             {
                 if (id != employmentStatus.EmploymentStatusID) return BadRequest("Id mismatched.");
 
-                var data = await _employmentStatusService.GetById(id);
-                if (data == null) return NotFound();
+                var oldData = await _employmentStatusService.GetById(id);
+                if (oldData == null) return NotFound();
 
                 var updatedData = await _employmentStatusService.Update(employmentStatus);
+
+                // Log the UPDATE action
+                await LogActionAsync("tblEmploymentStatus", "UPDATE", id.ToString(), oldData, updatedData);
+
                 return Ok(updatedData);
             }
             catch (Exception ex)
@@ -83,6 +98,10 @@ namespace BCAS_HRMSbackend.Controllers
                 if (data == null) return NotFound();
 
                 var deletedData = await _employmentStatusService.DeleteById(id);
+
+                // Log the DELETE action
+                await LogActionAsync("tblEmploymentStatus", "DELETE", id.ToString(), data, null);
+
                 return Ok(deletedData);
             }
             catch (Exception ex)

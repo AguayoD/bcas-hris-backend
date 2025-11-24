@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿// Controllers/UsersController.cs
+using BCAS_HRMSbackend.Controllers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Models.DTOs.UsersDTO;
 using Models.Models;
@@ -9,38 +11,12 @@ namespace BcasHRMS_Project.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class UsersController : ControllerBase
+    public class UsersController : BaseController
     {
         private readonly tblUsersService _tbluserService = new tblUsersService();
 
-        [HttpGet]
-        public async Task<IActionResult> GetAllUsers()
+        public UsersController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
         {
-            try
-            {
-                var data = await _tbluserService.GetAll();
-                return Ok(data);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(ex.Message);
-            }
-        }
-
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetUserById(int id)
-        {
-            try
-            {
-                var data = await _tbluserService.GetByIdWithRoles(id);
-                if (data == null) return NotFound("User not found.");
-
-                return Ok(data);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(ex.Message);
-            }
         }
 
         [HttpPost]
@@ -58,6 +34,13 @@ namespace BcasHRMS_Project.Controllers
                 }
 
                 var newUser = await _tbluserService.Insert(userDTO);
+
+                // Log the INSERT action
+                if (newUser?.UserId != null)
+                {
+                    await LogActionAsync("tblUsers", "INSERT", newUser.UserId.ToString(), null, newUser);
+                }
+
                 return CreatedAtAction(nameof(GetUserById), new { id = newUser.UserId }, newUser);
             }
             catch (Exception ex)
@@ -99,7 +82,6 @@ namespace BcasHRMS_Project.Controllers
                     RoleId = userUpdateDTO.RoleId,
                     UserName = userUpdateDTO.UserName,
                     IsActive = userUpdateDTO.IsActive,
-                    // Keep existing password hash and salt if no new password provided
                     PasswordHash = existingUser.PasswordHash,
                     Salt = existingUser.Salt
                 };
@@ -107,13 +89,16 @@ namespace BcasHRMS_Project.Controllers
                 // If new password is provided, generate new hash and salt
                 if (!string.IsNullOrEmpty(userUpdateDTO.NewPassword))
                 {
-                    // Assuming your service has a method to hash passwords
                     var (hashedPassword, salt) = _tbluserService.GeneratePasswordHash(userUpdateDTO.NewPassword);
                     userToUpdate.PasswordHash = hashedPassword;
                     userToUpdate.Salt = salt;
                 }
 
                 var updatedUser = await _tbluserService.Update(userToUpdate);
+
+                // Log the UPDATE action
+                await LogActionAsync("tblUsers", "UPDATE", id.ToString(), existingUser, updatedUser);
+
                 return Ok(updatedUser);
             }
             catch (Exception ex)
@@ -132,7 +117,41 @@ namespace BcasHRMS_Project.Controllers
                     return NotFound("User not found.");
 
                 var deletedUser = await _tbluserService.DeleteById(id);
+
+                // Log the DELETE action
+                await LogActionAsync("tblUsers", "DELETE", id.ToString(), existingUser, null);
+
                 return Ok(new { Message = "User deleted successfully.", DeletedUser = deletedUser });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // ... rest of the existing methods (GET, activate/deactivate, etc.) remain the same
+        [HttpGet]
+        public async Task<IActionResult> GetAllUsers()
+        {
+            try
+            {
+                var data = await _tbluserService.GetAll();
+                return Ok(data);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetUserById(int id)
+        {
+            try
+            {
+                var data = await _tbluserService.GetByIdWithRoles(id);
+                if (data == null) return NotFound("User not found.");
+                return Ok(data);
             }
             catch (Exception ex)
             {
@@ -152,6 +171,10 @@ namespace BcasHRMS_Project.Controllers
                 // Set IsActive to false
                 existingUser.IsActive = false;
                 var deactivatedUser = await _tbluserService.Update(existingUser);
+
+                // Log the UPDATE action for deactivation
+                await LogActionAsync("tblUsers", "UPDATE", id.ToString(),
+                    new { existingUser.IsActive }, new { deactivatedUser.IsActive });
 
                 return Ok(new { Message = "User deactivated successfully.", User = deactivatedUser });
             }
@@ -174,29 +197,16 @@ namespace BcasHRMS_Project.Controllers
                 existingUser.IsActive = true;
                 var activatedUser = await _tbluserService.Update(existingUser);
 
+                // Log the UPDATE action for activation
+                await LogActionAsync("tblUsers", "UPDATE", id.ToString(),
+                    new { existingUser.IsActive }, new { activatedUser.IsActive });
+
                 return Ok(new { Message = "User activated successfully.", User = activatedUser });
             }
             catch (Exception ex)
             {
                 return BadRequest(ex.Message);
             }
-        }
-
-        //ADDED
-        [HttpPost("forgot-password")]
-        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDTO dto)
-        {
-            var success = await _tbluserService.ForgotPasswordAsync(dto.Email);
-            return Ok(new { message = "If an account exists, a reset link has been sent." });
-        }
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDTO dto)
-        {
-            var success = await _tbluserService.ResetPasswordAsync(dto.Token, dto.NewPassword);
-            if (!success)
-                return BadRequest(new { message = "Invalid or expired token." });
-
-            return Ok(new { message = "Password reset successful." });
         }
     }
 }

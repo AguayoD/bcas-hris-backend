@@ -41,6 +41,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddScoped<tblUserRoleRepository>();
 builder.Services.AddScoped<tblUserRoleService>();
 
+builder.Services.AddHttpContextAccessor();
 
 
 builder.Services.AddControllers();

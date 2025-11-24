@@ -9,50 +9,16 @@ namespace BCAS_HRMSbackend.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class RoleController : ControllerBase
+    public class RoleController : BaseController
     {
         private readonly tblUserRoleService _roleService;
 
-        public RoleController(tblUserRoleService roleService)
+        public RoleController(tblUserRoleService roleService, IHttpContextAccessor httpContextAccessor)
+            : base(httpContextAccessor)
         {
             _roleService = roleService;
         }
 
-        // GET: api/role
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<tblRoles>>> GetAll()
-        {
-            try
-            {
-                var roles = await _roleService.GetAll();
-                return Ok(roles);
-            }
-            catch (System.Exception ex)
-            {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
-            }
-        }
-
-        // GET: api/role/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<tblRoles>> GetById(int id)
-        {
-            try
-            {
-                var role = await _roleService.GetById(id);
-                if (role == null)
-                {
-                    return NotFound($"Role with ID {id} not found");
-                }
-                return Ok(role);
-            }
-            catch (System.Exception ex)
-            {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
-            }
-        }
-
-        // POST: api/role
         [HttpPost]
         public async Task<ActionResult<tblRoles>> Create([FromBody] tblRoles role)
         {
@@ -69,6 +35,13 @@ namespace BCAS_HRMSbackend.Controllers
                 }
 
                 var createdRole = await _roleService.Insert(role);
+
+                // Log the INSERT action
+                if (createdRole?.RoleId != null)
+                {
+                    await LogActionAsync("tblRoles", "INSERT", createdRole.RoleId.ToString(), null, createdRole);
+                }
+
                 return CreatedAtAction(nameof(GetById), new { id = createdRole.RoleId }, createdRole);
             }
             catch (System.Exception ex)
@@ -77,7 +50,6 @@ namespace BCAS_HRMSbackend.Controllers
             }
         }
 
-        // PUT: api/role/5
         [HttpPut("{id}")]
         public async Task<ActionResult<tblRoles>> Update(int id, [FromBody] tblRoles role)
         {
@@ -105,6 +77,10 @@ namespace BCAS_HRMSbackend.Controllers
                 }
 
                 var updatedRole = await _roleService.Update(role);
+
+                // Log the UPDATE action
+                await LogActionAsync("tblRoles", "UPDATE", id.ToString(), existingRole, updatedRole);
+
                 return Ok(updatedRole);
             }
             catch (System.Exception ex)
@@ -113,7 +89,6 @@ namespace BCAS_HRMSbackend.Controllers
             }
         }
 
-        // DELETE: api/role/5
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(int id)
         {
@@ -126,7 +101,44 @@ namespace BCAS_HRMSbackend.Controllers
                 }
 
                 await _roleService.DeleteById(id);
+
+                // Log the DELETE action
+                await LogActionAsync("tblRoles", "DELETE", id.ToString(), existingRole, null);
+
                 return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        // GET methods remain the same
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<tblRoles>>> GetAll()
+        {
+            try
+            {
+                var roles = await _roleService.GetAll();
+                return Ok(roles);
+            }
+            catch (System.Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<tblRoles>> GetById(int id)
+        {
+            try
+            {
+                var role = await _roleService.GetById(id);
+                if (role == null)
+                {
+                    return NotFound($"Role with ID {id} not found");
+                }
+                return Ok(role);
             }
             catch (System.Exception ex)
             {
