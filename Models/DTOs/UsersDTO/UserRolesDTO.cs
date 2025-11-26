@@ -11,6 +11,7 @@ namespace Models.DTOs.UsersDTO
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
         public string? Username { get; set; }
+        public int? DepartmentID { get; set; }
         public IEnumerable<tblRoles>? Roles { get; set; }
     }
 }
