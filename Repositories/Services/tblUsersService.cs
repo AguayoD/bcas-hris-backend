@@ -125,9 +125,12 @@ namespace Repositories.Services
             return await _tblUsersRepository.DeleteById(id);
         }
 
-        public (string? hashedPassword, string? salt) GeneratePasswordHash(string newPassword)
+        // FIXED: GeneratePasswordHash method
+        public (string hashedPassword, string salt) GeneratePasswordHash(string newPassword)
         {
-            throw new NotImplementedException();
+            var saltBytes = _authenticationService.GenerateRandomSalt();
+            var hashedPassword = _authenticationService.ToHash(newPassword, saltBytes);
+            return (hashedPassword, Convert.ToBase64String(saltBytes));
         }
 
         // ADDED - Password reset functionality
@@ -161,15 +164,16 @@ namespace Repositories.Services
             return "Password reset link sent successfully.";
         }
 
+        // UPDATED: ResetPasswordAsync method to use fixed GeneratePasswordHash
         public async Task<bool> ResetPasswordAsync(string token, string newPassword)
         {
             var user = await _tblUsersRepository.GetUserByResetToken(token);
             if (user == null) return false;
 
-            var salt = _authenticationService.GenerateRandomSalt();
-            var passwordHash = _authenticationService.ToHash(newPassword, salt);
+            // Use the fixed GeneratePasswordHash method
+            var (hashedPassword, salt) = GeneratePasswordHash(newPassword);
 
-            var updated = await _tblUsersRepository.UpdatePassword(user.UserId.Value, passwordHash, Convert.ToBase64String(salt));
+            var updated = await _tblUsersRepository.UpdatePassword(user.UserId.Value, hashedPassword, salt);
 
             if (!updated) return false;
 

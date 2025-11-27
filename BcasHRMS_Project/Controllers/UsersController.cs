@@ -129,7 +129,6 @@ namespace BcasHRMS_Project.Controllers
             }
         }
 
-        // ... rest of the existing methods (GET, activate/deactivate, etc.) remain the same
         [HttpGet]
         public async Task<IActionResult> GetAllUsers()
         {
@@ -206,6 +205,51 @@ namespace BcasHRMS_Project.Controllers
             catch (Exception ex)
             {
                 return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDTO request)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(request.Email))
+                    return BadRequest("Email is required.");
+
+                var result = await _tbluserService.ForgotPasswordAsync(request.Email);
+
+                // Always return success to prevent email enumeration
+                return Ok(new { message = "If an account exists, a password reset link has been sent." });
+            }
+            catch (Exception ex)
+            {
+                // Still return success for security reasons
+                Console.WriteLine($"Error in forgot password: {ex.Message}");
+                return Ok(new { message = "If an account exists, a password reset link has been sent." });
+            }
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDTO request)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(request.Token) || string.IsNullOrEmpty(request.NewPassword))
+                    return BadRequest("Token and new password are required.");
+
+                if (request.NewPassword.Length < 6)
+                    return BadRequest("Password must be at least 6 characters long.");
+
+                var result = await _tbluserService.ResetPasswordAsync(request.Token, request.NewPassword);
+
+                if (!result)
+                    return BadRequest("Invalid or expired reset token.");
+
+                return Ok(new { message = "Password reset successfully." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error resetting password: {ex.Message}");
             }
         }
     }

@@ -14,4 +14,20 @@ namespace Models.DTOs.UsersDTO
         public int? DepartmentID { get; set; }
         public IEnumerable<tblRoles>? Roles { get; set; }
     }
+
+    public class UserRolesDTOV2
+    {
+        public int? UserId { get; set; }
+        public int? EmployeeId { get; set; }
+        public int? RoleId { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? Fullname { get; set; }
+
+        public string? Username { get; set; }
+
+        public int? DepartmentID { get; set; }
+        public IEnumerable<tblRoles>? Roles { get; set; }
+    }
+
 }

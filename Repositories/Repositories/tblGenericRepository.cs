@@ -138,6 +138,24 @@ namespace Repositories.Repositories
             return dt;
         }
 
+        public async Task<tblEmployees> GetEmployeeByIdAsync(int employeeId)
+        {
+            var sql = @"SELECT * FROM tblEmployees WHERE EmployeeID = @EmployeeID";
+            return await _connection.QuerySingleOrDefaultAsync<tblEmployees>(
+                sql,
+                new { EmployeeID = employeeId }   // matches @EmployeeID
+            );
+
+        }
+
+
+        public async Task<tblUsers> GetUserDetails(int userId)
+        {
+            var sql = @"SELECT * FROM tblUsers WHERE UserID = @UserID";
+
+            return await _connection.QuerySingleOrDefaultAsync<tblUsers>(sql, new { UserID = userId });
+        }
+
 
     }
 }

@@ -77,13 +77,13 @@ namespace Repositories.Services
                         else if (daysUntilExpiry == 14)
                         {
                             Console.WriteLine($"🎯 MATCH - 14 days remaining - SENDING EMAIL");
-                            await SendNotification(employee, contract, "2 weeks", 15);
+                            await SendNotification(employee, contract, "2 weeks", 14);
                             emailsSent++;
                         }
                         else if (daysUntilExpiry == 7)
                         {
                             Console.WriteLine($"🎯 MATCH - 7 days remaining - SENDING EMAIL");
-                            await SendNotification(employee, contract, "1 week", 8);
+                            await SendNotification(employee, contract, "1 week", 7);
                             emailsSent++;
                         }
                         else if (daysUntilExpiry <= 0)
@@ -94,7 +94,7 @@ namespace Repositories.Services
                         }
                         else
                         {
-                            Console.WriteLine($"No match - {daysUntilExpiry} days remaining (not 31, 15, 8, or expired)");
+                            Console.WriteLine($"No match - {daysUntilExpiry} days remaining (not 31, 14, 7, or expired)");
                         }
                     }
                     catch (Exception ex)

@@ -1,16 +1,20 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Models.Models;
 using Repositories.Repositories;
+using Repositories.Service;
 using Repositories.Services;
+using System.Data;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 ConfigurationManager configuration = builder.Configuration;
-// Add services to the container.
 
+// Authentication
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -20,9 +24,9 @@ builder.Services.AddAuthentication(options =>
 {
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuer = false,       // skip issuer validation
-        ValidateAudience = false,     // skip audience validation
-        ValidateLifetime = true,      // still check exp/nbf
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(configuration["Jwt:Key"]))
@@ -43,32 +47,44 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-
+// CORS
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(
-        policy =>
-        {
-            policy
-            .AllowAnyOrigin()
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-
-        });
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
 });
 
+// Repositories & Services
 builder.Services.AddScoped<tblUserRoleRepository>();
 builder.Services.AddScoped<tblUserRoleService>();
+builder.Services.AddScoped<tblEmployeeService>();
+builder.Services.AddScoped(typeof(tblGenericRepository<>));
 
+
+// HTTP Context
 builder.Services.AddHttpContextAccessor();
 
+// Database connection
+builder.Services.AddScoped<IDbConnection>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultSqlConnection");
 
+    return new SqlConnection(connectionString);
+});
+
+builder.Services.AddScoped<TransactionEventService>();
+
+
+// Controllers
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-//builder.Services.AddSwaggerGen();
 
-// Configure Swagger
+// Swagger
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -100,14 +116,13 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// Add this in Configure method (Startup.cs) or after builder.Build() (Program.cs)
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(
@@ -116,18 +131,14 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseHttpsRedirection();
-
-app.UseCors(builder => builder
-  .AllowAnyOrigin()
-  .AllowAnyMethod()
-  .AllowAnyHeader());
+app.UseCors(builder => builder.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-// ADD THIS SECTION - Start the contract notification timer
+// Contract notification timer
 try
 {
     var notificationService = new ContractNotificationService();
@@ -141,5 +152,3 @@ catch (Exception ex)
 }
 
 app.Run();
-
-

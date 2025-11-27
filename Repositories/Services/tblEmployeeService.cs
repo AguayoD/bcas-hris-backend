@@ -13,7 +13,6 @@ namespace Repositories.Service
     {
         private readonly tblEmployeesRepository _tblemployeesRepository = new tblEmployeesRepository();
 
-
         public async Task<IEnumerable<tblEmployees>> GetAll()
         {
             return await _tblemployeesRepository.GetAll();

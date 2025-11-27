@@ -17,24 +17,25 @@ namespace Repositories.Service
         }
 
         public async Task LogActionAsync(string tableName, string action, string recordId,
-                                       object oldValues, object newValues, int userId,
-                                       string userName, string ipAddress = null, string userAgent = null)
+               string description,
+               int userId, string userName, string ipAddress, string userAgent)
         {
             try
             {
                 var sql = @"
-                    INSERT INTO AuditLog (TableName, Action, RecordID, OldValues, NewValues, 
-                                        UserID, UserName, Timestamp, IPAddress, UserAgent)
-                    VALUES (@TableName, @Action, @RecordID, @OldValues, @NewValues, 
-                            @UserID, @UserName, @Timestamp, @IPAddress, @UserAgent)";
+INSERT INTO AuditLog
+(TableName, Action, RecordID, Description, UserID, UserName, Timestamp, IPAddress, UserAgent)
+VALUES
+(@TableName, @Action, @RecordID, @Description, @UserID, @UserName, GETDATE(), @IPAddress, @UserAgent)";
+
 
                 var auditLog = new AuditLog
                 {
                     TableName = tableName,
                     Action = action,
                     RecordID = recordId,
-                    OldValues = oldValues != null ? JsonSerializer.Serialize(oldValues, new JsonSerializerOptions { WriteIndented = false }) : null,
-                    NewValues = newValues != null ? JsonSerializer.Serialize(newValues, new JsonSerializerOptions { WriteIndented = false }) : null,
+                    //OldValues = oldValues != null ? JsonSerializer.Serialize(oldValues, new JsonSerializerOptions { WriteIndented = false }) : null,
+                    //NewValues = newValues != null ? JsonSerializer.Serialize(newValues, new JsonSerializerOptions { WriteIndented = false }) : null,
                     UserID = userId,
                     UserName = userName,
                     Timestamp = DateTime.UtcNow,

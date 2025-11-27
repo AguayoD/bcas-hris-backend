@@ -29,8 +29,24 @@ namespace BCAS_HRMSbackend.Controllers
                 var ipAddress = GetClientIPAddress();
                 var userAgent = GetUserAgent();
 
-                await _auditLogService.LogActionAsync(tableName, action, recordId, oldValues,
-                                                    newValues, UserId, userName, ipAddress, userAgent);
+                string description = BuildAuditDescription(
+                    action,
+                    "EmployeeName",     // or pass dynamic column
+                    oldValues?.ToString(),
+                    newValues?.ToString()
+                );
+
+                await _auditLogService.LogActionAsync(
+                    tableName,
+                    action,
+                    recordId,
+                    description,
+                    UserId,
+                    userName,
+                    ipAddress,
+                    userAgent
+                );
+
             }
             catch (Exception ex)
             {
@@ -215,5 +231,24 @@ namespace BCAS_HRMSbackend.Controllers
                 IPAddress = GetClientIPAddress()
             });
         }
+
+        protected string BuildAuditDescription(string action, string columnName, string oldValue, string newValue)
+        {
+            return action.ToUpper() switch
+            {
+                "UPDATE" =>
+                    $"{columnName}, \"{oldValue}\" → \"{newValue}\"",
+
+                "DELETE" =>
+                    $"Deleted: \"{oldValue}\"",
+
+                "INSERT" =>
+                    $"Added: \"{newValue}\"",
+
+                _ =>
+                    $"{action}: \"{newValue ?? oldValue}\""
+            };
+        }
+
     }
 }
