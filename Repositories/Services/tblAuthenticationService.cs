@@ -30,6 +30,7 @@ namespace Repositories.Services
                 new Claim(ClaimTypes.NameIdentifier,user.Username),
                 new Claim("UserId", user.UserId.ToString()),
                 new Claim("EmployeeId", user.EmployeeId.ToString()),
+                 new Claim("DepartmentID", user.DepartmentID.ToString()),
             };
 
             if (user.Roles != null)

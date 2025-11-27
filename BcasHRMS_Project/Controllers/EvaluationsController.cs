@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Models.Models;
 using Repositories.Context;
 using System.Data;
+using System.Text.Json;
 
 namespace BcasHRMS_Project.Controllers
 {
@@ -150,16 +151,79 @@ namespace BcasHRMS_Project.Controllers
                 if (_connection.State != ConnectionState.Open)
                     _connection.Open();
 
-                var deleteScoresSql = "DELETE FROM SubGroupScore";
-                var deleteEvalsSql = "DELETE FROM Evaluation";
+                using var transaction = _connection.BeginTransaction();
 
-                await _connection.ExecuteAsync(deleteScoresSql);
-                await _connection.ExecuteAsync(deleteEvalsSql);
+                try
+                {
+                    // Instead of deleting, move evaluations to an archive/history table
+                    // First check if archive table exists, create it if not
+                    var createArchiveTableSql = @"
+                        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='EvaluationHistory' AND xtype='U')
+                        BEGIN
+                            CREATE TABLE EvaluationHistory (
+                                EvaluationHistoryID int IDENTITY(1,1) PRIMARY KEY,
+                                OriginalEvaluationID int,
+                                EmployeeID int,
+                                EvaluatorID int,
+                                EvaluationDate datetime2,
+                                Comments nvarchar(MAX),
+                                FinalScore float,
+                                CreatedAt datetime2,
+                                ArchivedAt datetime2 DEFAULT GETDATE(),
+                                ScoresJson nvarchar(MAX)
+                            )
+                        END";
 
-                // Log the reset action
-                await LogActionAsync("Evaluation", "RESET", "ALL", null, new { Action = "All evaluations reset" });
+                    await _connection.ExecuteAsync(createArchiveTableSql, transaction: transaction);
 
-                return Ok(new { Message = "Evaluation data reset successfully" });
+                    // Archive current evaluations with their scores as JSON
+                    var archiveEvaluationsSql = @"
+                        INSERT INTO EvaluationHistory (OriginalEvaluationID, EmployeeID, EvaluatorID, EvaluationDate, Comments, FinalScore, CreatedAt, ScoresJson)
+                        SELECT 
+                            e.EvaluationID,
+                            e.EmployeeID,
+                            e.EvaluatorID,
+                            e.EvaluationDate,
+                            e.Comments,
+                            e.FinalScore,
+                            e.CreatedAt,
+                            (SELECT 
+                                SubGroupID, 
+                                ScoreValue 
+                             FROM SubGroupScore sgs 
+                             WHERE sgs.EvaluationID = e.EvaluationID 
+                             FOR JSON PATH) as ScoresJson
+                        FROM Evaluation e";
+
+                    var archivedCount = await _connection.ExecuteAsync(archiveEvaluationsSql, transaction: transaction);
+
+                    // Now delete the current data (this becomes the "reset")
+                    var deleteScoresSql = "DELETE FROM SubGroupScore";
+                    var deleteEvalsSql = "DELETE FROM Evaluation";
+
+                    await _connection.ExecuteAsync(deleteScoresSql, transaction: transaction);
+                    await _connection.ExecuteAsync(deleteEvalsSql, transaction: transaction);
+
+                    transaction.Commit();
+
+                    // Log the reset action
+                    await LogActionAsync("Evaluation", "RESET", "ALL", null, new
+                    {
+                        Action = "Evaluations archived and current data reset",
+                        ArchivedCount = archivedCount
+                    });
+
+                    return Ok(new
+                    {
+                        Message = $"Evaluation data reset successfully. {archivedCount} evaluations moved to history.",
+                        ArchivedCount = archivedCount
+                    });
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    throw;
+                }
             }
             catch (Exception ex)
             {
@@ -167,10 +231,147 @@ namespace BcasHRMS_Project.Controllers
             }
         }
 
-        // ... rest of the existing methods remain the same
+        [HttpGet("history")]
+        public async Task<IActionResult> GetEvaluationHistory()
+        {
+            try
+            {
+                // Check if history table exists
+                var checkTableSql = @"
+                    SELECT COUNT(*) 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_NAME = 'EvaluationHistory'";
+
+                var tableExists = await _connection.ExecuteScalarAsync<int>(checkTableSql) > 0;
+
+                if (!tableExists)
+                {
+                    return Ok(new List<EvaluationHistoryDto>()); // Return empty list if no history table
+                }
+
+                var sql = @"
+                    SELECT 
+                        eh.EvaluationHistoryID,
+                        eh.OriginalEvaluationID,
+                        eh.EmployeeID,
+                        emp.FirstName + ' ' + emp.LastName AS EmployeeName,
+                        eh.EvaluatorID,
+                        evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName,
+                        eh.EvaluationDate,
+                        eh.Comments,
+                        eh.FinalScore,
+                        eh.CreatedAt,
+                        eh.ArchivedAt,
+                        eh.ScoresJson
+                    FROM EvaluationHistory eh
+                    LEFT JOIN tblEmployees emp ON eh.EmployeeID = emp.EmployeeID
+                    LEFT JOIN tblUsers u ON eh.EvaluatorID = u.UserId
+                    LEFT JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
+                    ORDER BY eh.ArchivedAt DESC, eh.EvaluationDate DESC";
+
+                var result = await _connection.QueryAsync<EvaluationHistoryDto>(sql);
+
+                // Parse the JSON scores for each evaluation
+                var evaluationsWithScores = result.Select(eval =>
+                {
+                    if (!string.IsNullOrEmpty(eval.ScoresJson))
+                    {
+                        try
+                        {
+                            var scoresData = JsonSerializer.Deserialize<List<SubGroupScore>>(eval.ScoresJson);
+                            eval.Scores = scoresData?.Select(score => new SubGroupAnswer
+                            {
+                                SubGroupID = score.SubGroupID,
+                                ScoreValue = score.ScoreValue,
+                                ScoreLabel = GetScoreLabel(score.ScoreValue),
+                                SubGroupName = "Archived" // You might want to store this in the JSON too
+                            }).ToList() ?? new List<SubGroupAnswer>();
+                        }
+                        catch (Exception ex)
+                        {
+                            // If JSON parsing fails, leave scores empty
+                            eval.Scores = new List<SubGroupAnswer>();
+                        }
+                    }
+                    else
+                    {
+                        eval.Scores = new List<SubGroupAnswer>();
+                    }
+                    return eval;
+                }).ToList();
+
+                return Ok(evaluationsWithScores);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching evaluation history: {ex.Message}");
+            }
+        }
+
+        [HttpGet("history/{id}")]
+        public async Task<IActionResult> GetEvaluationHistoryById(int id)
+        {
+            try
+            {
+                var sql = @"
+                    SELECT 
+                        eh.EvaluationHistoryID,
+                        eh.OriginalEvaluationID,
+                        eh.EmployeeID,
+                        emp.FirstName + ' ' + emp.LastName AS EmployeeName,
+                        eh.EvaluatorID,
+                        evEmp.FirstName + ' ' + evEmp.LastName AS EvaluatorName,
+                        eh.EvaluationDate,
+                        eh.Comments,
+                        eh.FinalScore,
+                        eh.CreatedAt,
+                        eh.ArchivedAt,
+                        eh.ScoresJson
+                    FROM EvaluationHistory eh
+                    LEFT JOIN tblEmployees emp ON eh.EmployeeID = emp.EmployeeID
+                    LEFT JOIN tblUsers u ON eh.EvaluatorID = u.UserId
+                    LEFT JOIN tblEmployees evEmp ON u.EmployeeId = evEmp.EmployeeID
+                    WHERE eh.EvaluationHistoryID = @Id";
+
+                var result = await _connection.QueryFirstOrDefaultAsync<EvaluationHistoryDto>(sql, new { Id = id });
+
+                if (result == null)
+                    return NotFound("Archived evaluation not found.");
+
+                // Parse the JSON scores
+                if (!string.IsNullOrEmpty(result.ScoresJson))
+                {
+                    try
+                    {
+                        var scoresData = JsonSerializer.Deserialize<List<SubGroupScore>>(result.ScoresJson);
+                        result.Scores = scoresData?.Select(score => new SubGroupAnswer
+                        {
+                            SubGroupID = score.SubGroupID,
+                            ScoreValue = score.ScoreValue,
+                            ScoreLabel = GetScoreLabel(score.ScoreValue),
+                            SubGroupName = "Archived"
+                        }).ToList() ?? new List<SubGroupAnswer>();
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Scores = new List<SubGroupAnswer>();
+                    }
+                }
+                else
+                {
+                    result.Scores = new List<SubGroupAnswer>();
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching evaluation history: {ex.Message}");
+            }
+        }
+
         private async Task<decimal> CalculateWeightedFinalScore(List<SubGroupScore> scores, IDbTransaction transaction)
         {
-            // Existing implementation remains the same
             if (scores == null || scores.Count == 0)
                 return 0m;
 

@@ -301,4 +301,29 @@ namespace Models.Models
         public bool HasPrevious => PageNumber > 1;
         public bool HasNext => PageNumber < TotalPages;
     }
+
+    // Add these classes to your existing EvaluationModel.cs file
+
+    public class EvaluationHistoryDto
+    {
+        public int EvaluationHistoryID { get; set; }
+        public int OriginalEvaluationID { get; set; }
+        public int EmployeeID { get; set; }
+        public string EmployeeName { get; set; }
+        public int EvaluatorID { get; set; }
+        public string EvaluatorName { get; set; }
+        public DateTime EvaluationDate { get; set; }
+        public string Comments { get; set; }
+        public float FinalScore { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime ArchivedAt { get; set; }
+        public string ScoresJson { get; set; }
+        public List<SubGroupAnswer> Scores { get; set; } = new List<SubGroupAnswer>();
+    }
+
+    public class ResetEvaluationResponse
+    {
+        public string Message { get; set; }
+        public int ArchivedCount { get; set; }
+    }
 }
