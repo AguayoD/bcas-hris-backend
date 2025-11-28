@@ -1,9 +1,10 @@
-﻿// Controllers/BaseController.cs - FIXED TO GET ACTUAL USER
+﻿// Controllers/BaseController.cs - UPDATED FOR TRANSACTION EVENT AUDITING
 using Microsoft.AspNetCore.Mvc;
 using Repositories.Service;
 using System.Security.Claims;
 using Models.Models;
 using Repositories.Services;
+using Models.DTOs.UsersDTO;
 
 namespace BCAS_HRMSbackend.Controllers
 {
@@ -11,6 +12,7 @@ namespace BCAS_HRMSbackend.Controllers
     {
         protected readonly AuditLogService _auditLogService;
         protected readonly IHttpContextAccessor _httpContextAccessor;
+        protected readonly TransactionEventService _transactionEventService;
         private readonly tblUsersService _usersService;
 
         public BaseController(IHttpContextAccessor httpContextAccessor)
@@ -18,8 +20,18 @@ namespace BCAS_HRMSbackend.Controllers
             _auditLogService = new AuditLogService();
             _httpContextAccessor = httpContextAccessor;
             _usersService = new tblUsersService();
+            _transactionEventService = null; // Will be set by derived controllers that need it
         }
 
+        public BaseController(IHttpContextAccessor httpContextAccessor, TransactionEventService transactionEventService)
+        {
+            _auditLogService = new AuditLogService();
+            _httpContextAccessor = httpContextAccessor;
+            _usersService = new tblUsersService();
+            _transactionEventService = transactionEventService;
+        }
+
+        // Keep your existing LogActionAsync method for backward compatibility
         protected async Task LogActionAsync(string tableName, string action, string recordId,
                                           object oldValues = null, object newValues = null)
         {
@@ -51,6 +63,129 @@ namespace BCAS_HRMSbackend.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"Audit logging failed: {ex.Message}");
+            }
+        }
+
+        // NEW: Transaction Event logging method for the updated controllers
+        protected async Task LogTransactionEvent(string action, UserRolesDTOV2 user, int employeeId,
+            string description, object oldData, object newData)
+        {
+            if (_transactionEventService != null)
+            {
+                try
+                {
+                    string changes = "";
+
+                    // Generate changes description if both old and new data are provided
+                    if (oldData != null && newData != null)
+                    {
+                        changes = GenerateChangesDescription(oldData, newData);
+                    }
+
+                    await _transactionEventService.InsertAsync(new TransactionEvent
+                    {
+                        Action = action,
+                        Description = !string.IsNullOrEmpty(changes)
+                            ? $"{user.Username} {action}: {changes}"
+                            : $"{user.Username} {action}: {description}",
+                        UserID = user.UserId,
+                        UserName = user.Username ?? "Unknown",
+                        Fullname = GetFullnameFromData(newData ?? oldData),
+                        Timestamp = DateTime.Now
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Transaction event logging failed: {ex.Message}");
+                }
+            }
+        }
+
+        // Helper method to generate changes description
+        private string GenerateChangesDescription(object oldData, object newData)
+        {
+            try
+            {
+                var changes = new List<string>();
+                var properties = oldData.GetType().GetProperties();
+
+                foreach (var prop in properties)
+                {
+                    // Skip sensitive properties
+                    if (prop.Name == "PasswordHash" || prop.Name == "Salt" ||
+                        prop.Name == "LastUpdatedAt" || prop.Name == "LastUpdatedBy")
+                        continue;
+
+                    var oldValue = prop.GetValue(oldData)?.ToString() ?? "";
+                    var newValue = prop.GetValue(newData)?.ToString() ?? "";
+
+                    if (oldValue != newValue)
+                    {
+                        changes.Add($"{prop.Name}: {oldValue} → {newValue}");
+                    }
+                }
+
+                return changes.Count > 0 ? string.Join(" | ", changes) : "No changes detected";
+            }
+            catch
+            {
+                return "Changes detection failed";
+            }
+        }
+
+        // Helper method to extract fullname from data objects
+        private string GetFullnameFromData(object data)
+        {
+            if (data == null) return "Unknown";
+
+            try
+            {
+                var type = data.GetType();
+
+                // Try to get FirstName and LastName properties
+                var firstNameProp = type.GetProperty("FirstName");
+                var lastNameProp = type.GetProperty("LastName");
+
+                if (firstNameProp != null && lastNameProp != null)
+                {
+                    var firstName = firstNameProp.GetValue(data)?.ToString() ?? "";
+                    var lastName = lastNameProp.GetValue(data)?.ToString() ?? "";
+                    return $"{firstName} {lastName}".Trim();
+                }
+
+                // Try to get UserName property
+                var userNameProp = type.GetProperty("UserName");
+                if (userNameProp != null)
+                {
+                    return userNameProp.GetValue(data)?.ToString() ?? "Unknown";
+                }
+
+                // Try to get DepartmentName property
+                var deptNameProp = type.GetProperty("DepartmentName");
+                if (deptNameProp != null)
+                {
+                    return deptNameProp.GetValue(data)?.ToString() ?? "Unknown";
+                }
+
+                // Try to get PositionName property
+                var positionNameProp = type.GetProperty("PositionName");
+                if (positionNameProp != null)
+                {
+                    return positionNameProp.GetValue(data)?.ToString() ?? "Unknown";
+                }
+
+                // Try to get StatusName property
+                var statusNameProp = type.GetProperty("StatusName");
+                if (statusNameProp != null)
+                {
+                    return statusNameProp.GetValue(data)?.ToString() ?? "Unknown";
+                }
+
+                return "Unknown";
+            }
+            catch
+            {
+                return "Unknown";
             }
         }
 
@@ -249,6 +384,5 @@ namespace BCAS_HRMSbackend.Controllers
                     $"{action}: \"{newValue ?? oldValue}\""
             };
         }
-
     }
 }

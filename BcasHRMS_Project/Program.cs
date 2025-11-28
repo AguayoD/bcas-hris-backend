@@ -62,8 +62,19 @@ builder.Services.AddCors(options =>
 builder.Services.AddScoped<tblUserRoleRepository>();
 builder.Services.AddScoped<tblUserRoleService>();
 builder.Services.AddScoped<tblEmployeeService>();
+builder.Services.AddScoped<tblDepartmentService>();
+builder.Services.AddScoped<tblPositionsService>();
+builder.Services.AddScoped<tblEmploymentStatusService>();
+builder.Services.AddScoped<tblEducationalAttainmentService>();
+builder.Services.AddScoped<tblContractsService>();
+builder.Services.AddScoped<tblUsersService>();
+builder.Services.AddScoped<ContractNotificationService>();
+builder.Services.AddScoped<TimerService>();
 builder.Services.AddScoped(typeof(tblGenericRepository<>));
+builder.Services.AddScoped(typeof(tblGenericRepository<FileModel>));
+builder.Services.AddScoped<AuditLogService>();
 
+builder.Services.AddScoped(typeof(tblGenericRepository<>));
 
 // HTTP Context
 builder.Services.AddHttpContextAccessor();
@@ -78,7 +89,6 @@ builder.Services.AddScoped<IDbConnection>(sp =>
 });
 
 builder.Services.AddScoped<TransactionEventService>();
-
 
 // Controllers
 builder.Services.AddControllers();

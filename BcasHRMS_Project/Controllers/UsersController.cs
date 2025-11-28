@@ -13,10 +13,17 @@ namespace BcasHRMS_Project.Controllers
     [ApiController]
     public class UsersController : BaseController
     {
-        private readonly tblUsersService _tbluserService = new tblUsersService();
+        private readonly tblUsersService _tbluserService;
+        private readonly TransactionEventService _transactionEventService;
 
-        public UsersController(IHttpContextAccessor httpContextAccessor) : base(httpContextAccessor)
+        public UsersController(
+            IHttpContextAccessor httpContextAccessor,
+            tblUsersService tbluserService,
+            TransactionEventService transactionEventService
+        ) : base(httpContextAccessor)
         {
+            _tbluserService = tbluserService;
+            _transactionEventService = transactionEventService;
         }
 
         [HttpPost]
@@ -25,7 +32,13 @@ namespace BcasHRMS_Project.Controllers
             try
             {
                 if (!ModelState.IsValid)
-                    return BadRequest(ModelState);
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new { Message = "Invalid request data", Errors = errors });
+                }
 
                 var existingUser = await _tbluserService.GetByUsername(userDTO.Username);
                 if (existingUser != null)
@@ -35,17 +48,19 @@ namespace BcasHRMS_Project.Controllers
 
                 var newUser = await _tbluserService.Insert(userDTO);
 
-                // Log the INSERT action
+                // Log the CREATE action
                 if (newUser?.UserId != null)
                 {
-                    await LogActionAsync("tblUsers", "INSERT", newUser.UserId.ToString(), null, newUser);
+                    var user = await _transactionEventService.GetCurrentUserAsync();
+                    await LogTransactionEvent("CREATE", user, newUser.EmployeeId ?? 0,
+                        $"Created user: {newUser.UserName}", null, newUser);
                 }
 
                 return CreatedAtAction(nameof(GetUserById), new { id = newUser.UserId }, newUser);
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message, Details = ex.StackTrace });
             }
         }
 
@@ -55,7 +70,13 @@ namespace BcasHRMS_Project.Controllers
             try
             {
                 if (!ModelState.IsValid)
-                    return BadRequest(ModelState);
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(new { Message = "Invalid request data", Errors = errors });
+                }
 
                 if (id != userUpdateDTO.UserId)
                     return BadRequest("User ID in URL does not match User ID in request body.");
@@ -96,14 +117,11 @@ namespace BcasHRMS_Project.Controllers
 
                 var updatedUser = await _tbluserService.Update(userToUpdate);
 
-                // Log the UPDATE action
-                await LogActionAsync("tblUsers", "UPDATE", id.ToString(), existingUser, updatedUser);
-
                 return Ok(updatedUser);
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message, Details = ex.StackTrace });
             }
         }
 
@@ -119,13 +137,15 @@ namespace BcasHRMS_Project.Controllers
                 var deletedUser = await _tbluserService.DeleteById(id);
 
                 // Log the DELETE action
-                await LogActionAsync("tblUsers", "DELETE", id.ToString(), existingUser, null);
+                var user = await _transactionEventService.GetCurrentUserAsync();
+                await LogTransactionEvent("DELETE", user, existingUser.EmployeeId ?? 0,
+                    $"Deleted user: {existingUser.UserName}", existingUser, null);
 
                 return Ok(new { Message = "User deleted successfully.", DeletedUser = deletedUser });
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message, Details = ex.StackTrace });
             }
         }
 
@@ -139,7 +159,7 @@ namespace BcasHRMS_Project.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message });
             }
         }
 
@@ -154,7 +174,7 @@ namespace BcasHRMS_Project.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message });
             }
         }
 
@@ -167,19 +187,14 @@ namespace BcasHRMS_Project.Controllers
                 if (existingUser == null)
                     return NotFound("User not found.");
 
-                // Set IsActive to false
                 existingUser.IsActive = false;
                 var deactivatedUser = await _tbluserService.Update(existingUser);
-
-                // Log the UPDATE action for deactivation
-                await LogActionAsync("tblUsers", "UPDATE", id.ToString(),
-                    new { existingUser.IsActive }, new { deactivatedUser.IsActive });
 
                 return Ok(new { Message = "User deactivated successfully.", User = deactivatedUser });
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message });
             }
         }
 
@@ -192,19 +207,14 @@ namespace BcasHRMS_Project.Controllers
                 if (existingUser == null)
                     return NotFound("User not found.");
 
-                // Set IsActive to true
                 existingUser.IsActive = true;
                 var activatedUser = await _tbluserService.Update(existingUser);
-
-                // Log the UPDATE action for activation
-                await LogActionAsync("tblUsers", "UPDATE", id.ToString(),
-                    new { existingUser.IsActive }, new { activatedUser.IsActive });
 
                 return Ok(new { Message = "User activated successfully.", User = activatedUser });
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { Message = ex.Message });
             }
         }
 
@@ -218,12 +228,10 @@ namespace BcasHRMS_Project.Controllers
 
                 var result = await _tbluserService.ForgotPasswordAsync(request.Email);
 
-                // Always return success to prevent email enumeration
                 return Ok(new { message = "If an account exists, a password reset link has been sent." });
             }
             catch (Exception ex)
             {
-                // Still return success for security reasons
                 Console.WriteLine($"Error in forgot password: {ex.Message}");
                 return Ok(new { message = "If an account exists, a password reset link has been sent." });
             }
@@ -251,6 +259,54 @@ namespace BcasHRMS_Project.Controllers
             {
                 return BadRequest($"Error resetting password: {ex.Message}");
             }
+        }
+
+        // --- Transaction Event Helper Methods ---
+        private async Task LogTransactionEvent(string action, UserRolesDTOV2 user, int employeeId,
+            string description, tblUsers oldData, tblUsers newData)
+        {
+            string changes = oldData != null && newData != null ? GetChanges(oldData, newData) : "";
+
+            await _transactionEventService.InsertAsync(new TransactionEvent
+            {
+                Action = action,
+                Description = !string.IsNullOrEmpty(changes)
+                    ? $"{user.Username} {action}: {changes}"
+                    : $"{user.Username} {action}: {description}",
+                UserID = user.UserId,
+                UserName = user.Username ?? "Unknown",
+                Fullname = newData != null
+                    ? $"{newData.UserName}"
+                    : oldData != null
+                        ? $"{oldData.UserName}"
+                        : "Unknown",
+                Timestamp = DateTime.Now
+            });
+        }
+
+        private string GetChanges(tblUsers oldData, tblUsers newData)
+        {
+            var changes = new List<string>();
+            var properties = typeof(tblUsers).GetProperties();
+
+            // Exclude sensitive fields from logging
+            var excludedFields = new[] { "PasswordHash", "Salt" };
+
+            foreach (var prop in properties)
+            {
+                if (excludedFields.Contains(prop.Name))
+                    continue;
+
+                var oldValue = prop.GetValue(oldData)?.ToString() ?? "";
+                var newValue = prop.GetValue(newData)?.ToString() ?? "";
+
+                if (oldValue != newValue)
+                {
+                    changes.Add($"{prop.Name}: {oldValue} → {newValue}");
+                }
+            }
+
+            return changes.Count > 0 ? string.Join(" | ", changes) : "No changes detected";
         }
     }
 }

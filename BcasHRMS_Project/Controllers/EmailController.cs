@@ -99,7 +99,6 @@ namespace BcasHRMS_Project.Controllers
                                         <ul>
                                             <li>No more than 5 late arrivals in the current school year</li>
                                             <li>No more than 3 absences in the current school year</li>
-                                            <li>No memorandums for policy violations</li>
                                         </ul>
                                     </div>
 

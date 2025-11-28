@@ -17,7 +17,7 @@ namespace Models.DTOs.UsersDTO
         public string UserName { get; set; }
 
         // Optional - only include if password is being changed
-        public string? NewPassword { get; set; }
+        public string? NewPassword { get; set; } 
 
         public bool IsActive { get; set; } = true;
     }

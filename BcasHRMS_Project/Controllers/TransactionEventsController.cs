@@ -5,6 +5,7 @@ using Repositories.Service;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace BcasHRMS_Project.Controllers
 {
@@ -33,17 +34,18 @@ namespace BcasHRMS_Project.Controllers
 
                 IEnumerable<TransactionEvent> events;
 
-                // Check if any of the roles is Admin
-                bool isAdmin = user.Roles.Any(r => r.RoleName == "Admin");
+                // Check if the user has Admin or HR role
+                bool isPrivileged =
+                    user.Roles.Any(r => r.RoleName == "Admin" || r.RoleName == "HR");
 
-                if (isAdmin)
+                if (isPrivileged)
                 {
-                    // Admin sees all events
+                    // Admin & HR see all events
                     events = await _transactionEventService.GetAllAsync();
                 }
                 else
                 {
-                    // Employees see only events related to their EmployeeId
+                    // Regular employees only see their own events
                     events = await _transactionEventService.GetByEmployeeIdAsync((int)user.EmployeeId);
                 }
 
