@@ -21,7 +21,14 @@ namespace BcasHRMS_Project.Controllers
         [HttpGet("groups")]
         public async Task<IActionResult> GetAllGroups()
         {
-            var sql = "SELECT * FROM [Group]";
+            var sql = @"
+        SELECT 
+            GroupID,
+            Name, 
+            Description, 
+            Weight,
+            GroupTypeID 
+        FROM [Group]";
             var result = await _connection.QueryAsync<Group>(sql);
             return Ok(result);
         }
@@ -74,7 +81,7 @@ namespace BcasHRMS_Project.Controllers
                 Description = groupUpdate.Description
             });
 
-            return rows > 0 ? Ok() : NotFound();
+            return rows > 0 ? Ok(new { message = "Group updated successfully" }) : NotFound();
         }
 
         [HttpDelete("groups/{id}")]
@@ -82,22 +89,39 @@ namespace BcasHRMS_Project.Controllers
         {
             try
             {
+                // First check if group exists
+                var checkExistsSql = "SELECT COUNT(1) FROM [Group] WHERE GroupID = @GroupID";
+                var existsCount = await _connection.ExecuteScalarAsync<int>(checkExistsSql, new { GroupID = id });
+
+                if (existsCount == 0)
+                {
+                    return NotFound(new { message = "Group not found." });
+                }
+
                 // First check if group has any subgroups
                 var checkSubgroupsSql = "SELECT COUNT(1) FROM SubGroup WHERE GroupID = @GroupID";
                 var subgroupCount = await _connection.ExecuteScalarAsync<int>(checkSubgroupsSql, new { GroupID = id });
 
                 if (subgroupCount > 0)
                 {
-                    return BadRequest("Cannot delete group that has subgroups. Please delete subgroups first.");
+                    return BadRequest(new { message = "Cannot delete group that has subgroups. Please delete subgroups first." });
                 }
 
                 var sql = "DELETE FROM [Group] WHERE GroupID = @id";
                 var rows = await _connection.ExecuteAsync(sql, new { id });
-                return rows > 0 ? Ok(new { message = "Group deleted successfully" }) : NotFound();
+
+                if (rows > 0)
+                {
+                    return Ok(new { message = "Group deleted successfully" });
+                }
+                else
+                {
+                    return StatusCode(500, new { message = "Failed to delete group" });
+                }
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error deleting group: {ex.Message}");
+                return StatusCode(500, new { message = $"Error deleting group: {ex.Message}" });
             }
         }
 
@@ -153,7 +177,7 @@ namespace BcasHRMS_Project.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
+                return StatusCode(500, new { message = $"Internal server error: {ex.Message}" });
             }
         }
 
@@ -182,7 +206,7 @@ namespace BcasHRMS_Project.Controllers
                 Name = subGroupUpdate.Name
             });
 
-            return rows > 0 ? Ok() : NotFound();
+            return rows > 0 ? Ok(new { message = "SubGroup updated successfully" }) : NotFound();
         }
 
         [HttpDelete("subgroups/{id}")]
@@ -190,31 +214,89 @@ namespace BcasHRMS_Project.Controllers
         {
             try
             {
-                // First check if subgroup has any items
-                var checkItemsSql = "SELECT COUNT(1) FROM Item WHERE SubGroupID = @SubGroupID";
-                var itemCount = await _connection.ExecuteScalarAsync<int>(checkItemsSql, new { SubGroupID = id });
+                if (_connection.State != ConnectionState.Open)
+                    _connection.Open();
 
-                if (itemCount > 0)
+                using var transaction = _connection.BeginTransaction();
+
+                try
                 {
-                    return BadRequest("Cannot delete subgroup that has items. Please delete items first.");
+                    // First check if subgroup exists
+                    var checkExistsSql = "SELECT COUNT(1) FROM SubGroup WHERE SubGroupID = @SubGroupID";
+                    var existsCount = await _connection.ExecuteScalarAsync<int>(checkExistsSql, new { SubGroupID = id }, transaction);
+
+                    if (existsCount == 0)
+                    {
+                        transaction.Rollback();
+                        return NotFound(new { message = "SubGroup not found." });
+                    }
+
+                    // First check if subgroup has any items - delete them first
+                    var checkItemsSql = "SELECT COUNT(1) FROM Item WHERE SubGroupID = @SubGroupID";
+                    var itemCount = await _connection.ExecuteScalarAsync<int>(checkItemsSql, new { SubGroupID = id }, transaction);
+
+                    if (itemCount > 0)
+                    {
+                        // Delete all items in this subgroup first
+                        var deleteItemsSql = "DELETE FROM Item WHERE SubGroupID = @SubGroupID";
+                        await _connection.ExecuteAsync(deleteItemsSql, new { SubGroupID = id }, transaction);
+                    }
+
+                    // Check if subgroup has any evaluation scores
+                    var checkScoresSql = "SELECT COUNT(1) FROM SubGroupScore WHERE SubGroupID = @SubGroupID";
+                    var scoreCount = await _connection.ExecuteScalarAsync<int>(checkScoresSql, new { SubGroupID = id }, transaction);
+
+                    if (scoreCount > 0)
+                    {
+                        // Find evaluations that use this subgroup and delete them
+                        var findEvaluationsSql = @"
+                            SELECT DISTINCT EvaluationID 
+                            FROM SubGroupScore 
+                            WHERE SubGroupID = @SubGroupID";
+
+                        var evaluationIds = await _connection.QueryAsync<int>(findEvaluationsSql, new { SubGroupID = id }, transaction);
+
+                        foreach (var evalId in evaluationIds)
+                        {
+                            // Delete scores for this evaluation
+                            var deleteScoresSql = "DELETE FROM SubGroupScore WHERE EvaluationID = @EvaluationID";
+                            await _connection.ExecuteAsync(deleteScoresSql, new { EvaluationID = evalId }, transaction);
+
+                            // Delete the evaluation
+                            var deleteEvalSql = "DELETE FROM Evaluation WHERE EvaluationID = @EvaluationID";
+                            await _connection.ExecuteAsync(deleteEvalSql, new { EvaluationID = evalId }, transaction);
+                        }
+                    }
+
+                    // Now delete the subgroup
+                    var deleteSubGroupSql = "DELETE FROM SubGroup WHERE SubGroupID = @SubGroupID";
+                    var rows = await _connection.ExecuteAsync(deleteSubGroupSql, new { SubGroupID = id }, transaction);
+
+                    transaction.Commit();
+
+                    if (rows > 0)
+                    {
+                        return Ok(new
+                        {
+                            message = "SubGroup deleted successfully",
+                            deletedItems = itemCount,
+                            deletedEvaluations = scoreCount > 0 ? "and related evaluations" : ""
+                        });
+                    }
+                    else
+                    {
+                        return StatusCode(500, new { message = "Failed to delete subgroup" });
+                    }
                 }
-
-                // Check if subgroup has any evaluation scores
-                var checkScoresSql = "SELECT COUNT(1) FROM SubGroupScore WHERE SubGroupID = @SubGroupID";
-                var scoreCount = await _connection.ExecuteScalarAsync<int>(checkScoresSql, new { SubGroupID = id });
-
-                if (scoreCount > 0)
+                catch (Exception ex)
                 {
-                    return BadRequest("Cannot delete subgroup that has evaluation scores. Please delete evaluations first.");
+                    transaction.Rollback();
+                    throw;
                 }
-
-                var sql = "DELETE FROM SubGroup WHERE SubGroupID = @id";
-                var rows = await _connection.ExecuteAsync(sql, new { id });
-                return rows > 0 ? Ok(new { message = "SubGroup deleted successfully" }) : NotFound();
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error deleting subgroup: {ex.Message}");
+                return StatusCode(500, new { message = $"Error deleting subgroup: {ex.Message}" });
             }
         }
 
@@ -274,7 +356,7 @@ namespace BcasHRMS_Project.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
+                return StatusCode(500, new { message = $"Internal server error: {ex.Message}" });
             }
         }
 
@@ -307,7 +389,7 @@ namespace BcasHRMS_Project.Controllers
                 ItemTypeID = itemUpdate.ItemTypeID ?? existingItem.ItemTypeID
             });
 
-            return rows > 0 ? Ok() : NotFound();
+            return rows > 0 ? Ok(new { message = "Item updated successfully" }) : NotFound();
         }
 
         [HttpDelete("items/{id}")]
@@ -315,22 +397,68 @@ namespace BcasHRMS_Project.Controllers
         {
             try
             {
-                // Check if item has any evaluation scores
-                var checkScoresSql = "SELECT COUNT(1) FROM EvaluationScore WHERE ItemID = @ItemID";
-                var scoreCount = await _connection.ExecuteScalarAsync<int>(checkScoresSql, new { ItemID = id });
+                if (_connection.State != ConnectionState.Open)
+                    _connection.Open();
 
-                if (scoreCount > 0)
+                using var transaction = _connection.BeginTransaction();
+
+                try
                 {
-                    return BadRequest("Cannot delete item that has evaluation scores. Please delete evaluations first.");
-                }
+                    // First check if item exists
+                    var checkExistsSql = "SELECT COUNT(1) FROM Item WHERE ItemID = @ItemID";
+                    var existsCount = await _connection.ExecuteScalarAsync<int>(checkExistsSql, new { ItemID = id }, transaction);
 
-                var sql = "DELETE FROM Item WHERE ItemID = @id";
-                var rows = await _connection.ExecuteAsync(sql, new { id });
-                return rows > 0 ? Ok(new { message = "Item deleted successfully" }) : NotFound();
+                    if (existsCount == 0)
+                    {
+                        transaction.Rollback();
+                        return NotFound(new { message = "Item not found." });
+                    }
+
+                    // Check if item has any evaluation scores in EvaluationScore table
+                    var checkEvaluationScoresSql = @"
+                        SELECT COUNT(1) 
+                        FROM INFORMATION_SCHEMA.TABLES 
+                        WHERE TABLE_NAME = 'EvaluationScore'";
+
+                    var evaluationScoreTableExists = await _connection.ExecuteScalarAsync<int>(checkEvaluationScoresSql, transaction: transaction) > 0;
+
+                    if (evaluationScoreTableExists)
+                    {
+                        var checkScoresSql = "SELECT COUNT(1) FROM EvaluationScore WHERE ItemID = @ItemID";
+                        var scoreCount = await _connection.ExecuteScalarAsync<int>(checkScoresSql, new { ItemID = id }, transaction);
+
+                        if (scoreCount > 0)
+                        {
+                            // Delete evaluation scores for this item
+                            var deleteScoresSql = "DELETE FROM EvaluationScore WHERE ItemID = @ItemID";
+                            await _connection.ExecuteAsync(deleteScoresSql, new { ItemID = id }, transaction);
+                        }
+                    }
+
+                    // Now delete the item
+                    var deleteItemSql = "DELETE FROM Item WHERE ItemID = @ItemID";
+                    var rows = await _connection.ExecuteAsync(deleteItemSql, new { ItemID = id }, transaction);
+
+                    transaction.Commit();
+
+                    if (rows > 0)
+                    {
+                        return Ok(new { message = "Item deleted successfully" });
+                    }
+                    else
+                    {
+                        return StatusCode(500, new { message = "Failed to delete item" });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    throw;
+                }
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error deleting item: {ex.Message}");
+                return StatusCode(500, new { message = $"Error deleting item: {ex.Message}" });
             }
         }
     }

@@ -34,6 +34,7 @@ namespace Models.Models
         public string Name { get; set; }          // e.g., "A"
         public string Description { get; set; }   // e.g., "Teaching Profession Qualifications"
         public float Weight { get; set; }          // e.g., 25.0
+        public int GroupTypeID { get; set; }
         public List<SubGroup> SubGroups { get; set; }
     }
 
