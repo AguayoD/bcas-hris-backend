@@ -1,10 +1,10 @@
-﻿using Model.Models;
-using Models.Models;
+﻿using Models.Models;
 using Repositories.Repositories;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Repositories.Service
@@ -30,7 +30,32 @@ namespace Repositories.Service
 
         public async Task<tblEmployees> Update(tblEmployees tblemployee)
         {
-            return await _tblemployeesRepository.Update(tblemployee);
+            try
+            {
+                Console.WriteLine($"=== tblEmployeeService.Update ===");
+                Console.WriteLine($"EmployeeID: {tblemployee.EmployeeID}");
+                Console.WriteLine($"Employee data to update: {JsonSerializer.Serialize(tblemployee)}");
+
+                var result = await _tblemployeesRepository.Update(tblemployee);
+
+                Console.WriteLine($"Update result: {(result != null ? "Success" : "Null result")}");
+                if (result != null)
+                {
+                    Console.WriteLine($"Updated employee: {JsonSerializer.Serialize(result)}");
+                }
+                else
+                {
+                    Console.WriteLine($"WARNING: Update returned null!");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in tblEmployeeService.Update: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                throw;
+            }
         }
 
         public async Task<tblEmployees> DeleteById(int id)

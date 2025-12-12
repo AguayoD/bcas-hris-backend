@@ -73,7 +73,9 @@ builder.Services.AddScoped<TimerService>();
 builder.Services.AddScoped(typeof(tblGenericRepository<>));
 builder.Services.AddScoped(typeof(tblGenericRepository<FileModel>));
 builder.Services.AddScoped<AuditLogService>();
-
+builder.Services.AddScoped<PendingEmployeeUpdateService>();
+builder.Services.AddScoped<tblEmployeeService>();
+builder.Services.AddScoped<TransactionEventService>();
 builder.Services.AddScoped(typeof(tblGenericRepository<>));
 
 // HTTP Context
